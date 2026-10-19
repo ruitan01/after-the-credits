@@ -17,7 +17,10 @@
   --color-amber: #e9b35f;
   --color-amber-bright: #f4c77f;
   --color-ember: #f2917f;
+}
 
+/* `inline` so utilities read the next/font variables set on <body>, not :root. */
+@theme inline {
   --font-serif: var(--font-fraunces), Georgia, "Times New Roman", serif;
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
