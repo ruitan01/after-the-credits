@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { Star } from "@/components/StarRating";
 import { formatWatchedOn } from "@/lib/date";
 import type { Entry } from "@/lib/entries";
@@ -5,9 +8,12 @@ import type { Entry } from "@/lib/entries";
 type Props = {
   entry: Entry;
   highlighted?: boolean;
+  onDelete: (entry: Entry) => void;
 };
 
-export default function EntryCard({ entry, highlighted = false }: Props) {
+export default function EntryCard({ entry, highlighted = false, onDelete }: Props) {
+  const [confirming, setConfirming] = useState(false);
+
   return (
     <article
       aria-labelledby={`entry-${entry.id}-title`}
@@ -32,6 +38,37 @@ export default function EntryCard({ entry, highlighted = false }: Props) {
           {entry.reflection}
         </p>
       )}
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-3 text-sm">
+        {confirming ? (
+          <>
+            <span className="text-parchment">Delete this entry? This can&rsquo;t be undone.</span>
+            <button
+              type="button"
+              onClick={() => onDelete(entry)}
+              className="rounded-full border border-ember/70 px-3 py-1 font-medium text-ember hover:bg-ember/10"
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              // Focusing the replacement button keeps keyboard users in place.
+              autoFocus
+              onClick={() => setConfirming(false)}
+              className="rounded-full border border-seam-strong px-3 py-1 text-ivory hover:border-parchment"
+            >
+              Keep it
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="rounded px-1 text-parchment underline-offset-4 hover:text-ivory hover:underline"
+          >
+            Delete<span className="sr-only"> {entry.title}</span>
+          </button>
+        )}
+      </div>
     </article>
   );
 }

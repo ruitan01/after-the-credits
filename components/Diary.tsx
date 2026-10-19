@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import EntryCard from "@/components/EntryCard";
-import { STORAGE_KEY, loadEntries, type Entry } from "@/lib/entries";
+import { STORAGE_KEY, deleteEntry, loadEntries, type Entry } from "@/lib/entries";
 
 type State =
   | { status: "loading" }
@@ -16,7 +16,9 @@ export default function Diary() {
   const searchParams = useSearchParams();
   const [state, setState] = useState<State>({ status: "loading" });
   const [saved, setSaved] = useState<{ id: string; title: string } | null>(null);
+  const [notice, setNotice] = useState("");
   const bannerRef = useRef<HTMLDivElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const refresh = useCallback(() => {
     const result = loadEntries();
@@ -48,6 +50,19 @@ export default function Diary() {
   useEffect(() => {
     if (saved) bannerRef.current?.focus();
   }, [saved]);
+
+  function handleDelete(entry: Entry) {
+    try {
+      deleteEntry(entry.id);
+      setNotice(`${entry.title} was removed from your diary.`);
+    } catch {
+      setNotice(`${entry.title} couldn't be deleted. Your browser may be blocking storage.`);
+    }
+    if (saved?.id === entry.id) setSaved(null);
+    refresh();
+    // The deleted card took focus with it; move to a stable landmark.
+    headingRef.current?.focus();
+  }
 
   if (state.status === "loading") {
     return (
@@ -127,7 +142,12 @@ export default function Diary() {
 
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 id="diary-title" className="font-serif text-4xl tracking-tight text-ivory sm:text-5xl">
+          <h1
+            id="diary-title"
+            ref={headingRef}
+            tabIndex={-1}
+            className="font-serif text-4xl tracking-tight text-ivory outline-none sm:text-5xl"
+          >
             Your diary
           </h1>
           <p className="mt-2 text-parchment">
@@ -138,10 +158,14 @@ export default function Diary() {
 
       {recovered && <RecoveredNotice />}
 
+      <p role="status" className={notice ? "text-sm text-parchment" : "sr-only"}>
+        {notice}
+      </p>
+
       <ol className="space-y-4">
         {entries.map((entry) => (
           <li key={entry.id}>
-            <EntryCard entry={entry} highlighted={entry.id === saved?.id} />
+            <EntryCard entry={entry} highlighted={entry.id === saved?.id} onDelete={handleDelete} />
           </li>
         ))}
       </ol>
