@@ -101,6 +101,16 @@ describe("loadEntries / saveEntry", () => {
     expect(backupKey && storage.getItem(backupKey)).toBe("garbage");
   });
 
+  it("backs up the original before dropping unreadable items", () => {
+    const raw = JSON.stringify([entry({ id: "good" }), { broken: true }]);
+    storage.setItem(STORAGE_KEY, raw);
+    expect(loadEntries()).toMatchObject({ status: "ok", recovered: true });
+    const backupKey = storage.keys().find((k) => k.startsWith(`${STORAGE_KEY}:corrupt-`));
+    expect(backupKey && storage.getItem(backupKey)).toBe(raw);
+    // The cleaned list is written back, so the notice doesn't repeat on every visit.
+    expect(loadEntries()).toMatchObject({ status: "ok", recovered: false });
+  });
+
   it("reports unavailable storage", () => {
     storage.failWrites = true;
     expect(loadEntries()).toEqual({ status: "unavailable" });

@@ -1,3 +1,10 @@
+import { Suspense } from "react";
+import Diary from "@/components/Diary";
+
 export default function Home() {
-  return <h1 className="font-serif text-4xl">Your diary</h1>;
+  return (
+    <Suspense>
+      <Diary />
+    </Suspense>
+  );
 }

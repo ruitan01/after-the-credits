@@ -80,11 +80,13 @@ export function loadEntries(): LoadResult {
 
   const raw = storage.getItem(STORAGE_KEY);
   const { entries, corrupt, dropped } = parseEntries(raw);
-  if (corrupt && raw !== null) {
-    // Never silently wipe data: keep the unreadable value aside for recovery.
+  if ((corrupt || dropped > 0) && raw !== null) {
+    // Never silently wipe data: keep the unreadable value aside for recovery,
+    // then keep only the entries that could be read.
     try {
       storage.setItem(`${STORAGE_KEY}:corrupt-${Date.now()}`, raw);
-      storage.removeItem(STORAGE_KEY);
+      if (corrupt) storage.removeItem(STORAGE_KEY);
+      else storage.setItem(STORAGE_KEY, JSON.stringify(entries));
     } catch {
       // Leave it in place if we can't back it up.
     }
