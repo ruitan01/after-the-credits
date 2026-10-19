@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Palette: a warm near-black "screening room" with soft amber light.
+ * Contrast against --color-night (#0f0d0b):
+ *   ivory 16.5:1 · parchment (muted) 9.4:1 · amber 10.2:1 · ember (errors) 8.4:1
+ *   seam-strong (input borders) 3.7:1 on --color-reel, meeting the 3:1 non-text minimum
+ */
+@theme {
+  --color-night: #0f0d0b;
+  --color-reel: #1a1714;
+  --color-reel-raised: #221e1a;
+  --color-seam: #3b342c;
+  --color-seam-strong: #7d705f;
+  --color-ivory: #f3ece1;
+  --color-parchment: #bfb3a3;
+  --color-amber: #e9b35f;
+  --color-amber-bright: #f4c77f;
+  --color-ember: #f2917f;
+
+  --font-serif: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-night);
+  color: var(--color-ivory);
+  /* A single faint pool of projector light at the top of the page. */
+  background-image: radial-gradient(
+    ellipse 80% 40% at 50% -10%,
+    rgb(233 179 95 / 0.12),
+    transparent 70%
+  );
+  background-repeat: no-repeat;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 3px;
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 0 1px var(--color-amber), 0 0 32px rgb(233 179 95 / 0.25);
+  }
+  to {
+    box-shadow: 0 0 0 1px var(--color-seam), 0 0 0 transparent;
+  }
+}
+
+.animate-settle {
+  animation: settle 400ms ease-out both;
+}
+
+.animate-glow {
+  animation: glow 2.4s ease-out 0.3s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
