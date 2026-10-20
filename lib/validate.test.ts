@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDay, toDayString } from "./date";
+import { daysBetween, describeDaysAgo, parseDay, toDayString } from "./date";
 import { validateEntry, type EntryFormValues } from "./validate";
 
 const TODAY = "2026-10-19";
@@ -68,5 +68,21 @@ describe("local dates", () => {
     expect(parseDay("2026-10-18")?.getDate()).toBe(18);
     expect(parseDay("2026-13-01")).toBeNull();
     expect(parseDay("18/10/2026")).toBeNull();
+  });
+});
+
+describe("returning-visit wording", () => {
+  it("counts calendar days, including across a daylight-saving change", () => {
+    expect(daysBetween("2026-10-17", "2026-10-20")).toBe(3);
+    expect(daysBetween("2026-10-30", "2026-11-02")).toBe(3);
+    expect(daysBetween("nope", "2026-10-20")).toBeNull();
+  });
+
+  it("describes the gap in plain words", () => {
+    expect(describeDaysAgo(0)).toBe("earlier today");
+    expect(describeDaysAgo(1)).toBe("yesterday");
+    expect(describeDaysAgo(3)).toBe("3 days ago");
+    expect(describeDaysAgo(20)).toBe("2 weeks ago");
+    expect(describeDaysAgo(90)).toBe("a while ago");
   });
 });

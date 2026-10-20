@@ -2,8 +2,10 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import EntryCard from "@/components/EntryCard";
 import { ButtonLink } from "@/components/ui";
+import { daysBetween, describeDaysAgo, localToday, monthName, toDayString } from "@/lib/date";
 import { STORAGE_KEY, deleteEntry, loadEntries, type Entry } from "@/lib/entries";
 
 type State =
@@ -125,7 +127,10 @@ export default function Diary() {
             <span aria-hidden="true" className="mr-2 text-amber">
               ✓
             </span>
-            <em className="font-serif text-lg">{saved.title}</em> is now in your diary.
+            <em className="font-serif text-lg">{saved.title}</em> is now in your diary.{" "}
+            <Link href="/log" className="whitespace-nowrap text-amber underline underline-offset-4 hover:text-amber-bright">
+              Log another film
+            </Link>
           </p>
           <button
             type="button"
@@ -139,6 +144,7 @@ export default function Diary() {
 
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div>
+          {!saved && <p className="text-sm tracking-[0.2em] text-amber uppercase">Welcome back</p>}
           <h1
             id="diary-title"
             ref={headingRef}
@@ -152,6 +158,8 @@ export default function Diary() {
           </p>
         </div>
       </header>
+
+      {!saved && <SinceLastTime entries={entries} />}
 
       {recovered && <RecoveredNotice />}
 
@@ -171,6 +179,30 @@ export default function Diary() {
         Saved in this browser only. Clearing your browsing data will erase this diary.
       </p>
     </section>
+  );
+}
+
+/** The returning-visit prompt: what you logged last, and this month's tally. */
+function SinceLastTime({ entries }: { entries: Entry[] }) {
+  const today = localToday();
+  const latest = entries.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+  const gap = daysBetween(toDayString(new Date(latest.createdAt)), today);
+  const month = today.slice(0, 7);
+  const thisMonth = entries.filter((e) => e.watchedOn.startsWith(month)).length;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-seam bg-reel/60 p-5">
+      <p className="max-w-prose text-parchment">
+        You last logged <em className="font-serif text-lg text-ivory">{latest.title}</em>
+        {gap !== null && <> {describeDaysAgo(gap)}</>}.{" "}
+        {thisMonth > 0
+          ? `That's ${thisMonth} ${thisMonth === 1 ? "film" : "films"} so far in ${monthName(today)}.`
+          : `Nothing logged yet in ${monthName(today)}.`}
+      </p>
+      <ButtonLink href="/log" size="sm">
+        Log what you&rsquo;ve watched since
+      </ButtonLink>
+    </div>
   );
 }
 

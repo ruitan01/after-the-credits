@@ -36,3 +36,25 @@ export function formatWatchedOn(value: string): string {
     year: "numeric",
   });
 }
+
+/** Whole calendar days from `day` to `today` (both "YYYY-MM-DD"); null if either is invalid. */
+export function daysBetween(day: string, today: string): number | null {
+  const from = parseDay(day);
+  const to = parseDay(today);
+  if (!from || !to) return null;
+  // Rounding absorbs the hour lost or gained across a daylight-saving change.
+  return Math.round((to.getTime() - from.getTime()) / 86_400_000);
+}
+
+export function describeDaysAgo(days: number): string {
+  if (days <= 0) return "earlier today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.floor(days / 7)} weeks ago`;
+  return "a while ago";
+}
+
+export function monthName(day: string): string {
+  const date = parseDay(day);
+  return date ? date.toLocaleDateString("en-GB", { month: "long" }) : "";
+}
