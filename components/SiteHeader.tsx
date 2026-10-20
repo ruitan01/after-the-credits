@@ -7,6 +7,7 @@ import { ButtonLink } from "@/components/ui";
 export default function SiteHeader() {
   const pathname = usePathname();
   const onLog = pathname === "/log";
+  const onDiary = pathname === "/";
 
   return (
     <header className="border-b border-seam/70">
@@ -20,14 +21,23 @@ export default function SiteHeader() {
         >
           After the <em className="text-amber">Credits</em>
         </Link>
-        <ButtonLink
-          href="/log"
-          aria-current={onLog ? "page" : undefined}
-          variant={onLog ? "quiet" : "primary"}
-          size="sm"
-        >
-          <span aria-hidden="true">+</span>Log a film
-        </ButtonLink>
+        <div className="flex items-center gap-2 sm:gap-4">
+          <Link
+            href="/"
+            aria-current={onDiary ? "page" : undefined}
+            className="rounded px-2 py-1 text-sm text-parchment underline-offset-8 hover:text-ivory aria-[current=page]:text-ivory aria-[current=page]:underline aria-[current=page]:decoration-amber"
+          >
+            Diary
+          </Link>
+          <ButtonLink
+            href="/log"
+            aria-current={onLog ? "page" : undefined}
+            variant={onLog ? "quiet" : "primary"}
+            size="sm"
+          >
+            <span aria-hidden="true">+</span>Log a film
+          </ButtonLink>
+        </div>
       </nav>
     </header>
   );
