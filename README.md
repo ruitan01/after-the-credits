@@ -4,8 +4,8 @@ A quiet, private diary for the films you've watched. Write down the title, when 
 
 Built for MPCS 51238 *Design, Build, Ship*, Assignment 3: "Patterns & Flows: An Everyday Tool". It uses Next.js (App Router), Tailwind CSS v4, and `localStorage`. There's no backend, no account and no external APIs.
 
-- **Live:** _Vercel URL goes here after deployment_
-- **Repo:** _GitHub URL goes here after the first push_
+- **Live:** https://after-the-credits-five.vercel.app
+- **Repo:** https://github.com/ruitan01/after-the-credits
 
 ## Purpose and user
 
@@ -81,16 +81,48 @@ Three subagents studied how **Letterboxd**, **Day One** and **The StoryGraph** w
 
 ## First-run check: agent usability feedback
 
-The coding agent used the app as a brand-new user, **keyboard only**, against a production build (`next build && next start`) in Chrome. The goal was: *"Log three films you watched recently, then come back later."* It went through the first visit and the main task, and then simulated returning days later by back-dating entries.
+There were two rounds. The first ran locally before deployment and drove the fixes listed below. The second was the brief's Step 8, run on the **live site**.
 
-> **Note:** the brief asks for this check on the deployed URL. It will be repeated on the Vercel URL once the owner approves deployment, and this section will be updated.
+### Round 2: live site (20 Oct 2026)
 
-**What worked**
-- The first Tab reaches **Skip to content**, then the wordmark, **Log a film**, and **Log your first film**. Every step of every flow worked from the keyboard, including the rating (arrow keys move between stars, and the current star shows an amber focus ring).
-- Submitting without a rating showed "Choose a rating from 1 to 5." beside the stars and in the summary, moved focus to the rating, and kept the title, date and reflection. The error cleared as soon as a star was picked.
-- After a refresh the entries were still there, sorted by viewing date, with no flash of the empty state.
+**Setup:**
+- **Site:** https://after-the-credits-five.vercel.app (Next.js 15.5.28).
+- **Browser:** the agent drove a separate browser (Edge 155, headless) through the DevTools protocol, using a **brand-new temporary profile**. That gave it empty localStorage without touching the owner's real browser or diary entries.
+- **Input:** every step was done from the keyboard. The only exceptions were the native date picker's year/month/day segments, which were set by script.
 
-**What it found, and what changed**
+**Goal:** *"You're new here. Log three films you watched recently, then come back later and keep using the diary."*
+
+| Step | What the agent did | Result |
+|---|---|---|
+| First visit | Opened `/` with 0 localStorage keys | Welcome screen with one action. Tab order: Skip to content → wordmark → Diary → Log a film → **Log your first film** |
+| Film 1 | Pressed Enter on the empty form | Summary "2 things need fixing", with "Enter the film's title." and "Choose a rating from 1 to 5." beside the fields. Focus went to Title |
+| | Typed a title, tabbed past the rating, saved | Blocked with "Choose a rating from 1 to 5.". Focus went to the stars, and the **title, date and reflection were all kept** |
+| | Space + arrow keys to 4 stars, saved | Summary and field error cleared. Focus moved to the banner "*Paris, Texas* is now in your diary." |
+| Film 2 | Used **Log another film** from the banner | Opened `/log` with Title focused |
+| | Future date + 532-character reflection | "That date hasn't happened yet." and "Keep your reflection under 500 characters (you're at 532)." beside each field. Counter red at 532 / 500, title kept |
+| | Date in 1887 | "Films didn't exist before 1888. Check the year." |
+| | Fixed both, saved | The 5-star rating had been kept throughout. Saved and listed by viewing date |
+| Film 3 | Typed a title, left through the header, came back | **Draft restored** ("We kept the entry you hadn't saved yet." with Start over), saved with no reflection, draft cleared |
+| Refresh | Reloaded `/` | All 3 entries still there, no flash of the empty state |
+| Return later | Back-dated the test entries 3 days (temporary profile only) and reloaded | "**Welcome back** · You last logged *Paris, Texas* 3 days ago. That's 3 films so far in October." plus **Log what you've watched since** |
+| Delete | Keyboard: Delete → (focus on **Keep it**) → Shift+Tab → Delete | Entry removed, "…was removed from your diary." announced, focus moved to the heading, and the deletion survived a reload |
+| Labels | Checked every control | Film title, Date watched, Reflection (optional) each have a `<label>`, and Rating is a `fieldset` with a `legend` |
+| Contrast | Scanned the computed colors of every visible text element on the diary, the delete confirmation and the form with errors | **No pair below 4.5:1.** The lowest was 7.3:1 (error summary text) |
+| Responsive | 390 × 844 and 1440 × 900 | No horizontal scroll and 0 elements overflowing at 390px. The form stays one column |
+
+**Agent feedback (live)**
+- Every flow worked start to finish from the keyboard. The errors said exactly what to do next, and nothing had to be retyped after a mistake.
+- Coming back feels designed: the "Welcome back" line says what you logged last and invites you to add what you've watched since.
+- **Minor, not changed:**
+  - When you save a film with an *older* viewing date, its highlighted card sits lower in the list. With three entries it's visible, but in a long diary it could be off-screen. The banner still confirms the save. A possible later tweak is to name the date in the banner ("filed under Wed, 14 Oct").
+  - The native date input takes three Tab stops (year, month, day). That's standard browser behaviour, so it's left as is.
+  - Refreshing minutes after logging still says "Welcome back… earlier today". It's accurate, just a little eager.
+- No blocking issues, so **no code changes were needed after deployment.** Everything round 1 found was confirmed fixed on the live site.
+
+### Round 1: local production build, before deployment
+
+The agent used the app as a new user, keyboard only, against `next build && next start`, with the goal *"Log three films you watched recently, then come back later."*
+
 | # | Finding | Change | Commit |
 |---|---|---|---|
 | 1 | Typing a title on `/log`, then clicking the header wordmark, **lost the entry silently**. Only "Back to diary" asked for confirmation. | The form saves a draft as you type, restores it on return with **Start over**, and clears it after saving. This replaced the `confirm()` prompt. | `fix: keep an unsaved entry as a draft…` |
@@ -103,9 +135,9 @@ The coding agent used the app as a brand-new user, **keyboard only**, against a 
 
 ## Accessibility
 
-- **Keyboard:** everything is reachable and usable by keyboard (checked in the first-run check above). There's a skip link, focus moves on route change and after errors, saves and deletes, and the native radio group handles the rating.
+- **Keyboard:** everything is reachable and usable by keyboard (checked locally and on the live site in the first-run checks above). There's a skip link, focus moves on route change and after errors, saves and deletes, and the native radio group handles the rating.
 - **Labels:** every field has a visible `<label>`, with hints and errors linked through `aria-describedby`. Invalid fields get `aria-invalid`. Errors say "Error:" to screen readers and show a "!" icon, so they never rely on color alone.
-- **Contrast** (checked by the agent with the WCAG 2.1 formula, including semi-transparent surfaces):
+- **Contrast:** the agent checked it with the WCAG 2.1 formula, including semi-transparent surfaces. On the live site, a scan of every visible text element found nothing below 7.3:1.
 
   | Pair | Ratio | Needs |
   |---|---|---|
@@ -116,7 +148,7 @@ The coding agent used the app as a brand-new user, **keyboard only**, against a 
   | Button text on amber | 10.2:1 | 4.5:1 |
   | Input border on field / empty-star outline | 3.7:1 / 4.0:1 | 3:1 (non-text) |
 
-- **Motion and layout:** `prefers-reduced-motion` turns off fades and the highlight glow. Checked at **390px** and **1440px** with no horizontal scroll and nothing overflowing.
+- **Motion and layout:** `prefers-reduced-motion` turns off fades and the highlight glow. Checked at **390px** and **1440px**, locally and live, with no horizontal scroll and nothing overflowing.
 
 ## Decisions
 
@@ -138,12 +170,11 @@ Every change was made by directing Claude Code. The `AGENTS.md` file gives codin
 3. **Incremental build:** small conventional commits (scaffold → design tokens → storage → validation with tests → form → diary → delete). Tests, lint and build ran before commits.
 4. **Browser QA:** the agent tested each flow in Chrome against production builds. This caught a real bug: the display fonts weren't loading. They're fixed in `fix: resolve display and body fonts…`.
 5. **Compliance audit and first-run check** against the assignment brief. Its findings became the fixes listed above.
+6. **Deployment:** Vercel blocked the first deploy because Next.js 15.5.4 was a vulnerable release. The fix upgraded to the patched 15.5.28 on the same 15.x line (`fix(deps): upgrade Next.js…`).
+7. **Live first-run check** in an isolated browser profile. It found no blocking issues.
 
 `git log --oneline` shows the full progression.
 
-## Deploying (pending approval)
+## Deployment
 
-The app is a fully static Next.js build, so Vercel's defaults work without any config:
-1. Create an empty GitHub repo, then run `git remote add origin <url>` and `git push -u origin main`.
-2. On Vercel, choose **New Project**, import the repo, and keep the framework preset (Next.js). Leave the build command and output as they are. No environment variables are needed.
-3. Paste both URLs at the top of this README, then repeat the first-run check on the live URL.
+Deployed on Vercel's Hobby plan from `main`, with the framework preset (Next.js) and no environment variables or extra config. Every page is static (`○` in the build output). Pushing to `main` redeploys.
