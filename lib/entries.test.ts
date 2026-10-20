@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STORAGE_KEY, deleteEntry, loadEntries, parseEntries, saveEntry, sortEntries, type Entry } from "./entries";
+import {
+  DRAFT_KEY,
+  STORAGE_KEY,
+  clearDraft,
+  deleteEntry,
+  loadDraft,
+  loadEntries,
+  parseEntries,
+  saveDraft,
+  saveEntry,
+  sortEntries,
+  type Entry,
+} from "./entries";
 
 class MemoryStorage implements Storage {
   private data = new Map<string, string>();
@@ -122,5 +134,22 @@ describe("loadEntries / saveEntry", () => {
     deleteEntry("gone");
     const result = loadEntries();
     expect(result.status === "ok" && result.entries.map((e) => e.id)).toEqual(["keep"]);
+  });
+});
+
+describe("drafts", () => {
+  it("keeps a non-empty draft and forgets an empty one", () => {
+    saveDraft({ title: "Aftersun", watchedOn: "2026-10-17", rating: "", reflection: "" });
+    expect(loadDraft()?.title).toBe("Aftersun");
+    saveDraft({ title: "  ", watchedOn: "2026-10-17", rating: "", reflection: "" });
+    expect(loadDraft()).toBeNull();
+    saveDraft({ title: "X", watchedOn: "", rating: "3", reflection: "" });
+    clearDraft();
+    expect(loadDraft()).toBeNull();
+  });
+
+  it("ignores a malformed draft", () => {
+    storage.setItem(DRAFT_KEY, "not json");
+    expect(loadDraft()).toBeNull();
   });
 });

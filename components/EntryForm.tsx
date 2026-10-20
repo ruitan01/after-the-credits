@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import StarRating from "@/components/StarRating";
 import { Button, Field, inputClass } from "@/components/ui";
 import { localToday } from "@/lib/date";
-import { saveEntry, type Rating } from "@/lib/entries";
+import { clearDraft, loadDraft, saveDraft, saveEntry, type Rating } from "@/lib/entries";
 import {
   EARLIEST_DAY,
   FIELD_ORDER,
@@ -39,25 +39,41 @@ export default function EntryForm() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [restored, setRestored] = useState(false);
+  const [ready, setReady] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
   // "Today" must come from the visitor's clock, not the build server's.
+  // A draft left by an earlier visit to this page is restored, not lost.
   useEffect(() => {
     const day = localToday();
     setToday(day);
-    setValues((v) => (v.watchedOn ? v : { ...v, watchedOn: day }));
+    const draft = loadDraft();
+    if (draft) {
+      setValues({ ...draft, watchedOn: draft.watchedOn || day });
+      setRestored(true);
+    } else {
+      setValues((v) => (v.watchedOn ? v : { ...v, watchedOn: day }));
+    }
+    setReady(true);
     titleRef.current?.focus();
   }, []);
 
-  const hasContent = values.title.trim() !== "" || values.rating !== "" || values.reflection.trim() !== "";
-
+  // Keep the draft in step with what's typed (and drop it once it's empty).
   useEffect(() => {
-    if (!hasContent || saving) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [hasContent, saving]);
+    if (ready && !saving) saveDraft(values);
+  }, [values, ready, saving]);
+
+  function startOver() {
+    clearDraft();
+    setValues({ title: "", watchedOn: today, rating: "", reflection: "" });
+    setErrors({});
+    setDirty({});
+    setSubmitted(false);
+    setRestored(false);
+    titleRef.current?.focus();
+  }
 
   function update(field: EntryField, value: string) {
     const next = { ...values, [field]: value };
@@ -102,6 +118,7 @@ export default function EntryForm() {
         rating: Number(values.rating) as Rating,
         reflection: values.reflection.trim(),
       });
+      clearDraft();
       router.push(`/?saved=${encodeURIComponent(entry.id)}`);
     } catch {
       setSaving(false);
@@ -113,16 +130,19 @@ export default function EntryForm() {
     }
   }
 
-  function confirmLeave(e: React.MouseEvent) {
-    if (hasContent && !saving && !window.confirm("Leave without saving? This entry will be lost.")) {
-      e.preventDefault();
-    }
-  }
-
   const errorList = FIELD_ORDER.filter((f) => errors[f]);
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-8">
+      {restored && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-seam bg-reel p-4 text-sm">
+          <p className="text-parchment">We kept the entry you hadn&rsquo;t saved yet.</p>
+          <Button variant="quiet" size="sm" onClick={startOver}>
+            Start over
+          </Button>
+        </div>
+      )}
+
       <div ref={summaryRef} tabIndex={-1} className="outline-none">
         {(formError || (submitted && errorList.length > 0)) && (
           <div role="alert" className="rounded-lg border border-ember/60 bg-ember/10 p-4 text-sm">
@@ -230,9 +250,10 @@ export default function EntryForm() {
         <Button type="submit" disabled={saving}>
           {saving ? "Saving…" : "Save to diary"}
         </Button>
-        <Link href="/" onClick={confirmLeave} className="text-parchment underline-offset-4 hover:text-ivory hover:underline">
+        <Link href="/" className="text-parchment underline-offset-4 hover:text-ivory hover:underline">
           Back to diary
         </Link>
+        <p className="w-full text-sm text-parchment sm:ml-auto sm:w-auto">Unsaved changes are kept as a draft.</p>
       </div>
     </form>
   );

@@ -129,3 +129,38 @@ export function deleteEntry(id: string): void {
   const existing = current.status === "ok" ? current.entries : [];
   writeEntries(storage, existing.filter((e) => e.id !== id));
 }
+
+// Unsaved form contents, so leaving /log by any link doesn't lose what was typed.
+export const DRAFT_KEY = "after-the-credits:draft:v1";
+
+export type Draft = { title: string; watchedOn: string; rating: string; reflection: string };
+
+export function loadDraft(): Draft | null {
+  try {
+    const data: unknown = JSON.parse(window.localStorage.getItem(DRAFT_KEY) ?? "null");
+    if (typeof data !== "object" || data === null) return null;
+    const d = data as Record<string, unknown>;
+    const field = (v: unknown) => (typeof v === "string" ? v : "");
+    return { title: field(d.title), watchedOn: field(d.watchedOn), rating: field(d.rating), reflection: field(d.reflection) };
+  } catch {
+    return null;
+  }
+}
+
+export function saveDraft(draft: Draft): void {
+  try {
+    const empty = !draft.title.trim() && !draft.rating && !draft.reflection.trim();
+    if (empty) window.localStorage.removeItem(DRAFT_KEY);
+    else window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // A draft is a convenience; failing to keep one must never block typing.
+  }
+}
+
+export function clearDraft(): void {
+  try {
+    window.localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Nothing to clear if storage is unavailable.
+  }
+}
