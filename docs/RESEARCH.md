@@ -1,5 +1,43 @@
 # Onboarding research: Letterboxd, Day One, The StoryGraph
 
+There were two rounds:
+1. **Round 1** (before implementation, 19 Oct 2026): one quick web-search pass over the core logging flow and form design. It's further down this page.
+2. **Round 2** (compliance audit, 20 Oct 2026): three parallel **subagents**, one per product. Each studied how the product welcomes someone new: the first screen, what it asks for, and how soon you get something useful.
+
+Both rounds used public web pages only. No agent signed up for anything.
+
+## Round 2: subagent study of first-run onboarding
+
+| | Letterboxd | Day One | The StoryGraph |
+|---|---|---|---|
+| **First screen** | [Reported] After sign-up, a welcome page tells you to mark films you've seen from Popular. The logged-out landing page couldn't be fetched (403). | [Reported] A splash screen, then a sign-up screen (Sign in with Apple and others). | [Reported] After sign-up you're offered a Goodreads import and privacy preferences, then a home screen with recommendations, goals, challenges and popular books. |
+| **What it asks for before value** | [Reported] An account (email or social login). Profile details are suggested, not required. No mandatory survey was found. | [Reported] An account, a social-proof screen, then a 30-day-trial paywall. The order of the reminder-permission prompt is unclear. [Verified] Core journaling is free. | [Reported] An account. The import and the preference survey are optional. |
+| **Time to first useful thing** | [Reported] Fast: tap the "eye" on any poster to log a watch. [Verified] The log form is one screen (date, rating, like, tags, rewatch, privacy) with a single Save. | [Reported] You land on a list with a pre-written welcome entry and a floating "+". The editor is free text plus a date/time line. | [Reported] Search, then switch "to read" to "read". Every field (rating, dates, review, mood/pace) is optional, and quarter stars are allowed. |
+| **Feedback after saving** | [Verified] The entry appears in your Diary and Films. [Assumption] No documented toast. | [Reported] Done / checkmark, then [Assumption] the entry appears in the timeline. | [Assumption] The book moves to your Read shelf and feeds Stats. |
+| **What brings people back** | [Assumption] The social feed and lists. | [Verified] Reminders, streaks, and "On This Day". | [Reported] Stats, reading challenges, and recommendations. |
+
+**Copied:**
+- A first log that's one tap away, with one form screen and one Save (Letterboxd, Day One).
+- Every field except the essentials optional (StoryGraph).
+- Saying plainly that data stays on this device (Day One's privacy emphasis).
+- A light "what you've done lately" readout that brings people back (Day One "On This Day", StoryGraph stats).
+
+**Avoided:**
+- Account creation, paywalls, import prompts and preference surveys before the first entry (all three).
+- Social and privacy tiers (Letterboxd).
+- A **pre-seeded sample entry** (Day One). We considered it and rejected it: a made-up film in a personal diary would be confusing, and the user would have to delete it.
+
+**Design decisions this round led to** (built in the audit commits):
+1. The returning visit now opens with **"Welcome back"**, the last film logged, how long ago, and this month's tally. This is our small, private version of "On This Day" and stats. → `components/Diary.tsx` (`SinceLastTime`)
+2. The save banner offers **"Log another film"**, so a run of logs stays one tap each, like Letterboxd's quick log. → `components/Diary.tsx`
+3. The first visit stays a single welcome with one action. There's no sign-up, survey, import or tour. → unchanged, confirmed by all three studies.
+
+Round 2 sources: [Letterboxd FAQ](https://letterboxd.com/about/faq/), [Letterboxd welcome](https://letterboxd.com/welcome/), [Digital Citizen](https://www.digitalcitizen.life/letterboxd-how-to-find-and-review-movies-online/), [ScreensDesign: Day One](https://screensdesign.com/apps/day-one-journal-private-diary/), [Day One App Store](https://apps.apple.com/ae/app/id1055511498), [Day One guides](https://dayoneapp.com/guides/tips-and-tutorials/), [Popular Science: StoryGraph](https://www.popsci.com/diy/storygraph/), [Modern Mrs Darcy](https://modernmrsdarcy.com/271-episode/), [Book Riot](https://bookriot.com/do-goodreads-and-storygraph-users-rate-books-differently/).
+
+---
+
+## Round 1: logging flow and form design
+
 A short pass done before implementation (October 2026), using web search only. I didn't sign up for any of the products. Each point is labelled:
 **[Verified]** means it's backed by the product's own documentation or several independent sources. **[Reported]** means a single third-party source says so. **[Assumption]** means I'm inferring it and haven't confirmed it.
 
