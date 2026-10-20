@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ButtonLink } from "@/components/ui";
 
 export default function SiteHeader() {
   const pathname = usePathname();
@@ -19,17 +20,14 @@ export default function SiteHeader() {
         >
           After the <em className="text-amber">Credits</em>
         </Link>
-        <Link
+        <ButtonLink
           href="/log"
           aria-current={onLog ? "page" : undefined}
-          className={
-            onLog
-              ? "rounded-full border border-seam px-4 py-2 text-sm font-medium text-parchment"
-              : "rounded-full bg-amber px-4 py-2 text-sm font-semibold text-night transition-colors hover:bg-amber-bright"
-          }
+          variant={onLog ? "quiet" : "primary"}
+          size="sm"
         >
-          <span aria-hidden="true">+ </span>Log a film
-        </Link>
+          <span aria-hidden="true">+</span>Log a film
+        </ButtonLink>
       </nav>
     </header>
   );

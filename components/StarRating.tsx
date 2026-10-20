@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FieldError } from "@/components/ui";
 
 type Props = {
   value: string;
@@ -76,19 +77,5 @@ export default function StarRating({ value, onChange, onBlur, error, errorId }: 
       </div>
       {error && <FieldError id={errorId} message={error} />}
     </fieldset>
-  );
-}
-
-export function FieldError({ id, message }: { id: string; message: string }) {
-  return (
-    <p id={id} className="flex items-start gap-2 text-sm font-medium text-ember">
-      <span aria-hidden="true" className="mt-px font-bold">
-        !
-      </span>
-      <span>
-        <span className="sr-only">Error: </span>
-        {message}
-      </span>
-    </p>
   );
 }

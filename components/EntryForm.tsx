@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import StarRating, { FieldError } from "@/components/StarRating";
+import StarRating from "@/components/StarRating";
+import { Button, Field, inputClass } from "@/components/ui";
 import { localToday } from "@/lib/date";
 import { saveEntry, type Rating } from "@/lib/entries";
 import {
@@ -23,11 +24,6 @@ const LABELS: Record<EntryField, string> = {
   rating: "Rating",
   reflection: "Reflection",
 };
-
-const inputClass =
-  "block w-full rounded-lg border border-seam-strong bg-reel px-4 py-3 text-base text-ivory placeholder:text-parchment/70 " +
-  "transition-colors hover:border-parchment focus:border-amber focus-visible:outline-amber " +
-  "aria-invalid:border-ember";
 
 export default function EntryForm() {
   const router = useRouter();
@@ -124,8 +120,6 @@ export default function EntryForm() {
   }
 
   const errorList = FIELD_ORDER.filter((f) => errors[f]);
-  const describedBy = (field: EntryField, ...extra: string[]) =>
-    [...extra, errors[field] ? `${field}-error` : ""].filter(Boolean).join(" ") || undefined;
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-8">
@@ -162,48 +156,37 @@ export default function EntryForm() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <label htmlFor="title" className="block font-medium text-ivory">
-          Film title
-        </label>
-        <p id="title-hint" className="text-sm text-parchment">
-          As it appears on the poster.
-        </p>
-        <input
-          ref={titleRef}
-          id="title"
-          name="title"
-          type="text"
-          autoComplete="off"
-          value={values.title}
-          onChange={(e) => update("title", e.target.value)}
-          onBlur={() => blur("title")}
-          aria-invalid={errors.title ? true : undefined}
-          aria-describedby={describedBy("title", "title-hint")}
-          className={`${inputClass} font-serif text-lg`}
-        />
-        {errors.title && <FieldError id="title-error" message={errors.title} />}
-      </div>
+      <Field id="title" label={LABELS.title} hint="As it appears on the poster." error={errors.title}>
+        {(control) => (
+          <input
+            {...control}
+            ref={titleRef}
+            name="title"
+            type="text"
+            autoComplete="off"
+            value={values.title}
+            onChange={(e) => update("title", e.target.value)}
+            onBlur={() => blur("title")}
+            className={`${inputClass} font-serif text-lg`}
+          />
+        )}
+      </Field>
 
-      <div className="space-y-2">
-        <label htmlFor="watchedOn" className="block font-medium text-ivory">
-          Date watched
-        </label>
-        <input
-          id="watchedOn"
-          name="watchedOn"
-          type="date"
-          min={EARLIEST_DAY}
-          max={today || undefined}
-          value={values.watchedOn}
-          onChange={(e) => update("watchedOn", e.target.value)}
-          onBlur={() => blur("watchedOn")}
-          aria-invalid={errors.watchedOn ? true : undefined}
-          aria-describedby={describedBy("watchedOn")}
-          className={`${inputClass} max-w-56 [color-scheme:dark]`}
-        />
-        {errors.watchedOn && <FieldError id="watchedOn-error" message={errors.watchedOn} />}
-      </div>
+      <Field id="watchedOn" label={LABELS.watchedOn} error={errors.watchedOn}>
+        {(control) => (
+          <input
+            {...control}
+            name="watchedOn"
+            type="date"
+            min={EARLIEST_DAY}
+            max={today || undefined}
+            value={values.watchedOn}
+            onChange={(e) => update("watchedOn", e.target.value)}
+            onBlur={() => blur("watchedOn")}
+            className={`${inputClass} max-w-56 [color-scheme:dark]`}
+          />
+        )}
+      </Field>
 
       <StarRating
         value={values.rating}
@@ -213,46 +196,40 @@ export default function EntryForm() {
         errorId="rating-error"
       />
 
-      <div className="space-y-2">
-        <label htmlFor="reflection" className="block font-medium text-ivory">
-          Reflection <span className="font-normal text-parchment">(optional)</span>
-        </label>
-        <p id="reflection-hint" className="text-sm text-parchment">
-          A line or two: a scene, a feeling, who you watched it with.
-        </p>
-        <textarea
-          id="reflection"
-          name="reflection"
-          rows={5}
-          value={values.reflection}
-          onChange={(e) => update("reflection", e.target.value)}
-          onBlur={() => blur("reflection")}
-          aria-invalid={errors.reflection ? true : undefined}
-          aria-describedby={describedBy("reflection", "reflection-hint", "reflection-count")}
-          className={`${inputClass} resize-y leading-relaxed`}
-        />
-        <div className="flex items-start justify-between gap-4">
-          <div>{errors.reflection && <FieldError id="reflection-error" message={errors.reflection} />}</div>
+      <Field
+        id="reflection"
+        label={LABELS.reflection}
+        optional
+        hint="A line or two: a scene, a feeling, who you watched it with."
+        error={errors.reflection}
+        aside={
           <p
-            id="reflection-count"
-            className={`shrink-0 text-sm tabular-nums ${
+            className={`text-sm tabular-nums ${
               values.reflection.length > REFLECTION_MAX ? "font-semibold text-ember" : "text-parchment"
             }`}
           >
             {values.reflection.length} / {REFLECTION_MAX}
             <span className="sr-only"> characters</span>
           </p>
-        </div>
-      </div>
+        }
+      >
+        {(control) => (
+          <textarea
+            {...control}
+            name="reflection"
+            rows={5}
+            value={values.reflection}
+            onChange={(e) => update("reflection", e.target.value)}
+            onBlur={() => blur("reflection")}
+            className={`${inputClass} resize-y leading-relaxed`}
+          />
+        )}
+      </Field>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-4 border-t border-seam pt-6">
-        <button
-          type="submit"
-          disabled={saving}
-          className="rounded-full bg-amber px-6 py-3 font-semibold text-night transition-colors hover:bg-amber-bright disabled:cursor-wait disabled:opacity-70"
-        >
+        <Button type="submit" disabled={saving}>
           {saving ? "Saving…" : "Save to diary"}
-        </button>
+        </Button>
         <Link href="/" onClick={confirmLeave} className="text-parchment underline-offset-4 hover:text-ivory hover:underline">
           Back to diary
         </Link>

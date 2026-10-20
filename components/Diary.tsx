@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import EntryCard from "@/components/EntryCard";
+import { ButtonLink } from "@/components/ui";
 import { STORAGE_KEY, deleteEntry, loadEntries, type Entry } from "@/lib/entries";
 
 type State =
@@ -101,12 +101,9 @@ export default function Diary() {
           Log a film in under a minute, then come back to it whenever you like.
         </p>
         {recovered && <RecoveredNotice />}
-        <Link
-          href="/log"
-          className="mt-10 inline-flex items-center gap-2 rounded-full bg-amber px-7 py-3.5 text-lg font-semibold text-night transition-colors hover:bg-amber-bright"
-        >
+        <ButtonLink href="/log" size="lg" className="mt-10">
           Log your first film <span aria-hidden="true">→</span>
-        </Link>
+        </ButtonLink>
         <p className="mt-6 flex items-center gap-2 text-sm text-parchment">
           <span aria-hidden="true">◐</span>
           Entries stay in this browser. No account, nothing uploaded.

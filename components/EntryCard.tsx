@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Star } from "@/components/StarRating";
+import { Button } from "@/components/ui";
 import { formatWatchedOn } from "@/lib/date";
 import type { Entry } from "@/lib/entries";
 
@@ -42,22 +43,18 @@ export default function EntryCard({ entry, highlighted = false, onDelete }: Prop
         {confirming ? (
           <>
             <span className="text-parchment">Delete this entry? This can&rsquo;t be undone.</span>
-            <button
-              type="button"
-              onClick={() => onDelete(entry)}
-              className="rounded-full border border-ember/70 px-3 py-1 font-medium text-ember hover:bg-ember/10"
-            >
+            <Button variant="danger" size="sm" onClick={() => onDelete(entry)}>
               Delete
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="quiet"
+              size="sm"
               // Focusing the replacement button keeps keyboard users in place.
               autoFocus
               onClick={() => setConfirming(false)}
-              className="rounded-full border border-seam-strong px-3 py-1 text-ivory hover:border-parchment"
             >
               Keep it
-            </button>
+            </Button>
           </>
         ) : (
           <button
