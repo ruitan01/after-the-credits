@@ -10,9 +10,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@clerk/nextjs": "7.9.21",
     "next": "15.5.28",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react": "19.1.10",
+    "react-dom": "19.1.10"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
