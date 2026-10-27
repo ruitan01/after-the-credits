@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# playwright: reports, traces and signed-in browser state (session cookies)
+/test-results/
+/playwright-report/
+/e2e/.auth/
