@@ -7,6 +7,7 @@ import StarRating from "@/components/StarRating";
 import { Button, Field, inputClass } from "@/components/ui";
 import { localToday } from "@/lib/date";
 import { clearDraft, loadDraft, saveDraft, saveEntry, type Rating } from "@/lib/entries";
+import { useSupabase } from "@/lib/supabase";
 import {
   EARLIEST_DAY,
   FIELD_ORDER,
@@ -27,6 +28,7 @@ const LABELS: Record<EntryField, string> = {
 
 export default function EntryForm() {
   const router = useRouter();
+  const db = useSupabase();
   const [today, setToday] = useState("");
   const [values, setValues] = useState<EntryFormValues>({
     title: "",
@@ -96,7 +98,7 @@ export default function EntryForm() {
     document.getElementById(field)?.focus();
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (saving) return;
     setFormError("");
@@ -112,7 +114,8 @@ export default function EntryForm() {
 
     setSaving(true);
     try {
-      const entry = saveEntry({
+      if (!db) throw new Error("Not signed in yet.");
+      const entry = await saveEntry(db, {
         title: values.title.trim(),
         watchedOn: values.watchedOn,
         rating: Number(values.rating) as Rating,
@@ -123,8 +126,8 @@ export default function EntryForm() {
     } catch {
       setSaving(false);
       setFormError(
-        "We couldn't save this entry. Your browser may be blocking storage or be out of space. " +
-          "Nothing you typed has been lost. Try again, or copy your reflection somewhere safe.",
+        "We couldn't save this entry. Check your connection and try again. " +
+          "Nothing you typed has been lost: it's kept as a draft in this browser.",
       );
       summaryRef.current?.focus();
     }

@@ -4,17 +4,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import EntryCard from "@/components/EntryCard";
-import { ButtonLink } from "@/components/ui";
+import { Button, ButtonLink } from "@/components/ui";
 import { daysBetween, describeDaysAgo, localToday, monthName, toDayString } from "@/lib/date";
-import { STORAGE_KEY, deleteEntry, loadEntries, type Entry } from "@/lib/entries";
+import { deleteEntry, loadEntries, type Entry } from "@/lib/entries";
+import { useSupabase } from "@/lib/supabase";
 
-type State =
-  | { status: "loading" }
-  | { status: "unavailable" }
-  | { status: "ok"; entries: Entry[]; recovered: boolean };
+type State = { status: "loading" } | { status: "unavailable" } | { status: "ok"; entries: Entry[] };
 
 export default function Diary() {
   const router = useRouter();
+  const db = useSupabase();
   const searchParams = useSearchParams();
   const [state, setState] = useState<State>({ status: "loading" });
   const [saved, setSaved] = useState<{ id: string; title: string } | null>(null);
@@ -22,46 +21,54 @@ export default function Diary() {
   const bannerRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  const refresh = useCallback(() => {
-    const result = loadEntries();
+  const refresh = useCallback(async () => {
+    if (!db) return null;
+    const result = await loadEntries(db);
     setState(result);
     return result;
-  }, []);
+  }, [db]);
 
-  // localStorage only exists in the browser, so read it after mount.
+  // Entries load once Clerk has a session to send with the request.
   useEffect(() => {
-    const result = refresh();
-    const savedId = searchParams.get("saved");
-    if (savedId) {
-      const entry = result.status === "ok" ? result.entries.find((e) => e.id === savedId) : undefined;
-      if (entry) setSaved({ id: entry.id, title: entry.title });
-      // Drop the query param so a reload or shared URL doesn't repeat the banner.
-      router.replace("/", { scroll: false });
-    }
+    let cancelled = false;
+    refresh().then((result) => {
+      if (cancelled || !result) return;
+      const savedId = searchParams.get("saved");
+      if (savedId) {
+        const entry = result.status === "ok" ? result.entries.find((e) => e.id === savedId) : undefined;
+        if (entry) setSaved({ id: entry.id, title: entry.title });
+        // Drop the query param so a reload or shared URL doesn't repeat the banner.
+        router.replace("/", { scroll: false });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [refresh, router, searchParams]);
 
-  // Keep in sync with entries saved from another tab.
+  // Pick up entries logged in another tab or on another device when the user comes back.
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY || e.key === null) refresh();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
     };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refresh]);
 
   useEffect(() => {
     if (saved) bannerRef.current?.focus();
   }, [saved]);
 
-  function handleDelete(entry: Entry) {
+  async function handleDelete(entry: Entry) {
+    if (!db) return;
     try {
-      deleteEntry(entry.id);
+      await deleteEntry(db, entry.id);
       setNotice(`${entry.title} was removed from your diary.`);
     } catch {
-      setNotice(`${entry.title} couldn't be deleted. Your browser may be blocking storage.`);
+      setNotice(`${entry.title} couldn't be deleted. Check your connection and try again.`);
     }
     if (saved?.id === entry.id) setSaved(null);
-    refresh();
+    await refresh();
     // The deleted card took focus with it; move to a stable landmark.
     headingRef.current?.focus();
   }
@@ -80,16 +87,18 @@ export default function Diary() {
   if (state.status === "unavailable") {
     return (
       <div role="alert" className="rounded-xl border border-ember/60 bg-ember/10 p-6">
-        <h1 className="font-serif text-2xl text-ivory">Your diary can&rsquo;t open here</h1>
+        <h1 className="font-serif text-2xl text-ivory">Your diary can&rsquo;t open right now</h1>
         <p className="mt-2 text-parchment">
-          Your browser is blocking local storage, so entries can&rsquo;t be saved or read on this page. If
-          you&rsquo;re in a private window, try a normal one, or allow site data for this site.
+          We couldn&rsquo;t reach your diary. Your entries are safe. Check your connection, then try again.
         </p>
+        <Button variant="quiet" size="sm" className="mt-4" onClick={() => refresh()}>
+          Try again
+        </Button>
       </div>
     );
   }
 
-  const { entries, recovered } = state;
+  const { entries } = state;
 
   if (entries.length === 0) {
     return (
@@ -102,13 +111,12 @@ export default function Diary() {
           After the Credits is a quiet place to write down what you watched, when, and how it stayed with you.
           Log a film in under a minute, then come back to it whenever you like.
         </p>
-        {recovered && <RecoveredNotice />}
         <ButtonLink href="/log" size="lg" className="mt-10">
           Log your first film <span aria-hidden="true">→</span>
         </ButtonLink>
         <p className="mt-6 flex items-center gap-2 text-sm text-parchment">
           <span aria-hidden="true">◐</span>
-          For now, entries stay in this browser on this device.
+          Entries are private to your account, on any device you sign in from.
         </p>
       </section>
     );
@@ -161,8 +169,6 @@ export default function Diary() {
 
       {!saved && <SinceLastTime entries={entries} />}
 
-      {recovered && <RecoveredNotice />}
-
       <p role="status" className={notice ? "text-sm text-parchment" : "sr-only"}>
         {notice}
       </p>
@@ -176,7 +182,7 @@ export default function Diary() {
       </ol>
 
       <p className="pt-4 text-center text-sm text-parchment">
-        Saved in this browser only. Clearing your browsing data will erase this diary.
+        Private to your account. Sign in on any device to find it again.
       </p>
     </section>
   );
@@ -203,13 +209,5 @@ function SinceLastTime({ entries }: { entries: Entry[] }) {
         Log what you&rsquo;ve watched since
       </ButtonLink>
     </div>
-  );
-}
-
-function RecoveredNotice() {
-  return (
-    <p className="mt-6 rounded-lg border border-seam bg-reel p-4 text-sm text-parchment">
-      Some saved data couldn&rsquo;t be read and was set aside rather than deleted. Everything else is here.
-    </p>
   );
 }

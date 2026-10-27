@@ -1,16 +1,20 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DRAFT_KEY,
   STORAGE_KEY,
   clearDraft,
   deleteEntry,
+  fromRow,
   loadDraft,
   loadEntries,
   parseEntries,
   saveDraft,
   saveEntry,
   sortEntries,
+  toRow,
   type Entry,
+  type EntryRow,
 } from "./entries";
 
 class MemoryStorage implements Storage {
@@ -90,50 +94,95 @@ describe("sortEntries", () => {
   });
 });
 
-describe("loadEntries / saveEntry", () => {
-  it("round-trips a saved entry", () => {
-    const saved = saveEntry({ title: "Stalker", watchedOn: "2026-10-10", rating: 4, reflection: "Slow." });
-    const result = loadEntries();
-    expect(result.status).toBe("ok");
-    if (result.status === "ok") expect(result.entries).toEqual([saved]);
+// A stand-in for the Supabase query builder: records each call and resolves
+// to the result the test sets up.
+type Call = [method: string, ...args: unknown[]];
+function fakeDb(result: { data?: unknown; error?: { message: string } | null }) {
+  const calls: Call[] = [];
+  const builder: Record<string, unknown> = {};
+  for (const method of ["from", "select", "order", "insert", "single", "delete", "eq"]) {
+    builder[method] = (...args: unknown[]) => {
+      calls.push([method, ...args]);
+      return builder;
+    };
+  }
+  builder.then = (resolve: (value: unknown) => unknown) =>
+    resolve({ data: result.data ?? null, error: result.error ?? null });
+  return { db: builder as unknown as SupabaseClient, calls };
+}
+
+const row = (overrides: Partial<EntryRow> = {}): EntryRow => ({
+  id: "3f0c6a2e-1b7d-4c55-9a51-0d9a2b7e4f10",
+  title: "Paris, Texas",
+  watched_on: "2026-10-01",
+  rating: 5,
+  reflection: "",
+  created_at: "2026-10-01T20:00:00.123456+00:00",
+  ...overrides,
+});
+
+describe("row mapping", () => {
+  it("maps a database row to an Entry with a normalised timestamp", () => {
+    expect(fromRow(row())).toEqual({
+      id: "3f0c6a2e-1b7d-4c55-9a51-0d9a2b7e4f10",
+      title: "Paris, Texas",
+      watchedOn: "2026-10-01",
+      rating: 5,
+      reflection: "",
+      createdAt: "2026-10-01T20:00:00.123Z",
+    });
   });
 
-  it("does not overwrite entries written by another tab", () => {
-    storage.setItem(STORAGE_KEY, JSON.stringify([entry({ id: "from-other-tab" })]));
-    saveEntry({ title: "Stalker", watchedOn: "2026-10-10", rating: 4, reflection: "" });
-    const result = loadEntries();
-    expect(result.status === "ok" && result.entries.map((e) => e.id)).toContain("from-other-tab");
+  it("never sends user_id; the database takes it from the session token", () => {
+    const sent = toRow({ title: "Stalker", watchedOn: "2026-10-10", rating: 4, reflection: "Slow." });
+    expect(sent).toEqual({ title: "Stalker", watched_on: "2026-10-10", rating: 4, reflection: "Slow." });
+    expect(sent).not.toHaveProperty("user_id");
+  });
+});
+
+describe("loadEntries / saveEntry / deleteEntry", () => {
+  it("loads entries newest viewing first", async () => {
+    const { db, calls } = fakeDb({
+      data: [row({ id: "old", watched_on: "2025-01-01" }), row({ id: "new", watched_on: "2026-10-05" })],
+    });
+    const result = await loadEntries(db);
+    expect(result.status === "ok" && result.entries.map((e) => e.id)).toEqual(["new", "old"]);
+    expect(calls[0]).toEqual(["from", "entries"]);
   });
 
-  it("backs up corrupt data instead of silently wiping it", () => {
-    storage.setItem(STORAGE_KEY, "garbage");
-    const result = loadEntries();
-    expect(result).toEqual({ status: "ok", entries: [], recovered: true });
-    const backupKey = storage.keys().find((k) => k.startsWith(`${STORAGE_KEY}:corrupt-`));
-    expect(backupKey && storage.getItem(backupKey)).toBe("garbage");
+  it("reports the diary as unavailable when the request fails", async () => {
+    const { db } = fakeDb({ error: { message: "permission denied for table entries" } });
+    expect(await loadEntries(db)).toEqual({ status: "unavailable" });
   });
 
-  it("backs up the original before dropping unreadable items", () => {
-    const raw = JSON.stringify([entry({ id: "good" }), { broken: true }]);
-    storage.setItem(STORAGE_KEY, raw);
-    expect(loadEntries()).toMatchObject({ status: "ok", recovered: true });
-    const backupKey = storage.keys().find((k) => k.startsWith(`${STORAGE_KEY}:corrupt-`));
-    expect(backupKey && storage.getItem(backupKey)).toBe(raw);
-    // The cleaned list is written back, so the notice doesn't repeat on every visit.
-    expect(loadEntries()).toMatchObject({ status: "ok", recovered: false });
+  it("returns the saved entry as the database stored it", async () => {
+    const { db, calls } = fakeDb({ data: row({ title: "Stalker" }) });
+    const saved = await saveEntry(db, { title: "Stalker", watchedOn: "2026-10-01", rating: 5, reflection: "" });
+    expect(saved.title).toBe("Stalker");
+    expect(calls).toContainEqual(["insert", { title: "Stalker", watched_on: "2026-10-01", rating: 5, reflection: "" }]);
   });
 
-  it("reports unavailable storage", () => {
-    storage.failWrites = true;
-    expect(loadEntries()).toEqual({ status: "unavailable" });
-    expect(() => saveEntry({ title: "X", watchedOn: "2026-10-10", rating: 3, reflection: "" })).toThrow();
+  it("throws when a save is rejected, so the form can keep what was typed", async () => {
+    const { db } = fakeDb({ error: { message: "new row violates row-level security policy" } });
+    await expect(
+      saveEntry(db, { title: "X", watchedOn: "2026-10-10", rating: 3, reflection: "" }),
+    ).rejects.toThrow("row-level security");
   });
 
-  it("deletes a single entry", () => {
-    storage.setItem(STORAGE_KEY, JSON.stringify([entry({ id: "keep" }), entry({ id: "gone" })]));
-    deleteEntry("gone");
-    const result = loadEntries();
-    expect(result.status === "ok" && result.entries.map((e) => e.id)).toEqual(["keep"]);
+  it("deletes a single entry by id", async () => {
+    const { db, calls } = fakeDb({});
+    await deleteEntry(db, "gone");
+    expect(calls).toEqual([["from", "entries"], ["delete"], ["eq", "id", "gone"]]);
+  });
+
+  it("leaves entries saved in this browser untouched (they wait for the Phase 3 import)", async () => {
+    const local = JSON.stringify([entry({ id: "from-assignment-3" })]);
+    storage.setItem(STORAGE_KEY, local);
+    await loadEntries(fakeDb({ data: [] }).db);
+    await saveEntry(fakeDb({ data: row() }).db, { title: "X", watchedOn: "2026-10-10", rating: 3, reflection: "" });
+    await deleteEntry(fakeDb({}).db, "from-assignment-3");
+    expect(storage.getItem(STORAGE_KEY)).toBe(local);
+    expect(storage.keys()).toEqual([STORAGE_KEY]);
   });
 });
 
