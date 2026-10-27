@@ -15,15 +15,19 @@ The tests sign in as **two dedicated Clerk test users**, never as a real account
 so they can create and delete entries freely without touching a real diary.
 
 1. Clerk Dashboard → this app → **Development** instance → **Users** → **Create user**.
-   Create two users whose emails contain `+clerk_test`, for example
+   Create two users with addresses that receive no mail, such as
    `<your-test-name-a>+clerk_test@example.com` and `<your-test-name-b>+clerk_test@example.com`.
-   Clerk sends no email to `+clerk_test` addresses. If a password is required, any
-   strong one will do; the tests don't use it.
+   Pick your own names and keep them out of the repository. If a password is
+   required, any strong one will do; the tests don't use it.
 2. Add to `.env.local` (git-ignored):
    ```
-   E2E_USER_A_EMAIL=<your-test-name-a>+clerk_test@example.com
-   E2E_USER_B_EMAIL=<your-test-name-b>+clerk_test@example.com
+   E2E_USER_A_EMAIL=<test user A's email>
+   E2E_USER_B_EMAIL=<test user B's email>
    ```
+3. Keep Clerk **Test mode** off (Dashboard → Development instance → Settings).
+   The tests sign in with one-time tickets created with `CLERK_SECRET_KEY`, so they
+   don't need test mode. With it off, nobody can sign in to these accounts with
+   Clerk's fixed test code.
 
 `CLERK_SECRET_KEY` is already in `.env.local`. The test process loads it the
 same way `next dev` does, to get a Clerk testing token (so bot protection
