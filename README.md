@@ -1,180 +1,243 @@
 # After the Credits
 
-A quiet, private diary for the films you've watched. Write down the title, when you saw it, a rating, and a line about how it stayed with you. Come back next week and it's all still there, saved only in your own browser.
+A quiet, private diary for the films you've watched. Sign in, write down the title, when you saw it, a rating, and a line about how it stayed with you, and find it all again on any device. Only you can see your diary.
 
-Built for MPCS 51238 *Design, Build, Ship*, Assignment 3: "Patterns & Flows: An Everyday Tool". It uses Next.js (App Router), Tailwind CSS v4, and `localStorage`. There's no backend, no account and no external APIs.
+Built for MPCS 51238 *Design, Build, Ship*, **Assignment 4: "Full Stack App"**. It grows the Assignment 3 diary into a full-stack app with **Clerk** sign-in, a **Supabase** Postgres database protected by row-level security, and **iTunes Search** for finding films.
 
-- **Live:** https://after-the-credits-five.vercel.app
+- **Assignment 4 (this branch, `assignment-4-fullstack`):** live URL added after deployment, in its own Vercel project
+- **Assignment 3 (unchanged, `main`):** https://after-the-credits-five.vercel.app, with its README on [`main`](https://github.com/ruitan01/after-the-credits/blob/main/README.md)
 - **Repo:** https://github.com/ruitan01/after-the-credits
 
-## Purpose and user
+## What's new since Assignment 3
 
-**Who it's for:** someone who watches a few films a month and wants a private record of what they saw and how it felt. They don't want a public profile, social features, or an account just to write two sentences.
+| | Assignment 3 | Assignment 4 |
+|---|---|---|
+| Who | Anyone with the browser | A signed-in Clerk user |
+| Where entries live | `localStorage`, one browser | Supabase Postgres, any device |
+| Who can see them | Whoever uses that browser | Only their owner, enforced by row-level security |
+| Finding a film | Type the title | Type it, or pick an iTunes suggestion with poster, year and director |
+| Old entries | | Offered once: "N films are saved in this browser only. Add them to your account?" |
 
-**The job:** capture a film while it's still fresh, in under a minute, and find it again later.
+The flows, design tokens, form, validation messages and accessibility work from Assignment 3 are unchanged. New UI reuses the same `@theme` colors and `components/ui.tsx` primitives.
 
-**What brings them back:** the diary itself, a growing personal record. When they return, the app greets them with what they last logged, how long ago that was, and how many films they've logged this month, and then prompts them to log what they've watched since.
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        UI["Next.js client components<br/>Diary · EntryForm · FilmSearch · ImportOffer"]
+        CK["Clerk JS<br/>sign-in · session JWT"]
+        SB["supabase-js<br/>publishable key + Clerk JWT"]
+    end
+    subgraph Vercel["Vercel (Next.js server)"]
+        MW["middleware.ts<br/>clerkMiddleware: /log and /api/* need a user"]
+        API["GET /api/films/search?q=<br/>checks auth() · 24 h cache · 5 s timeout"]
+    end
+    CLERK[("Clerk<br/>development instance")]
+    PG[("Supabase Postgres<br/>public.entries + RLS")]
+    IT[("iTunes Search API")]
+
+    CK <--> CLERK
+    UI --> CK
+    UI --> SB
+    SB -- "REST + Bearer JWT" --> PG
+    PG -. "verifies JWT with Clerk's public keys (Third-Party Auth)" .-> CLERK
+    UI -- "fetch" --> MW --> API --> IT
+```
+
+- **Identity: Clerk.** Sign-up, sign-in, sign-out and the user menu use Clerk's components, themed with the app's tokens. `middleware.ts` protects every route except `/`, `/sign-in` and `/sign-up`. `/` decides on the server: a signed-out visitor gets the welcome page and never receives diary data.
+- **Data: Supabase, straight from the browser.** `lib/supabase.ts` creates the client with the **publishable key** and, for every request, the user's current Clerk session token. Supabase trusts Clerk through **Third-Party Auth**: it checks each token's signature against Clerk's public keys. No secret is shared between them.
+- **Access control: row-level security, and nothing else.** No server code filters diary rows by user. Postgres decides, using the token's `sub` claim (the Clerk user id). The Supabase secret or service-role key isn't used anywhere.
+- **Film search: one server route.** It's the only server-side code. See [Film search](#film-search-itunes) for why.
+
+## Data model and security in the database
+
+One table, `public.entries`, created by [`supabase/migrations/20261027190822_create_entries_table.sql`](supabase/migrations/20261027190822_create_entries_table.sql):
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` PK | `gen_random_uuid()`; imported entries keep their `localStorage` UUID |
+| `user_id` | `text not null` | Defaults to `auth.jwt()->>'sub'`, the Clerk user id. The app never sends it |
+| `title` | `text not null` | Not blank, at most 120 characters (same as the form) |
+| `watched_on` | `date not null` | Local calendar day |
+| `rating` | `smallint not null` | 1–5 |
+| `reflection` | `text not null default ''` | At most 500 characters |
+| `itunes_id`, `artwork_url`, `release_year` | nullable | Set only when the title was chosen from iTunes |
+| `created_at` | `timestamptz` | When it was logged; kept on import |
+
+- **RLS is on**, with one policy per action, all `to authenticated`, comparing `(select auth.jwt()->>'sub') = user_id`. Select uses `using`, insert uses `with check`, update uses both, and delete uses `using`.
+- **Grants are explicit:**
+  - Signed-out requests (`anon`) get nothing, so they fail with "permission denied" rather than an empty list.
+  - Signed-in users can select, insert and delete, and can update only the seven content columns, never `id`, `user_id` or `created_at`.
+  - Nobody gets `TRUNCATE`, which ignores RLS.
+- **Index:** `(user_id, watched_on desc)`, matching the diary's order.
+- The migration also revokes `EXECUTE` on the project's `rls_auto_enable()` event-trigger function from `PUBLIC`, so it can't be called through the API.
+
+## Film search (iTunes)
+
+Search is an **optional helper** on `/log`. Typing a title by hand always works, and nothing about search can stop a save.
+
+- **Why a server route** (`app/api/films/search/route.ts`), even though iTunes needs no key:
+  - It shrinks a ~450 KB response to a few KB.
+  - It caches identical searches for a day.
+  - Only signed-in users can use it, and it checks `auth()` itself, not only through middleware.
+  - Apple's informal limit is about 20 requests a minute per IP, and on Vercel every user shares the server's IP. The cache, a 300 ms debounce, a 2-character minimum, cancelled stale requests and a per-tab cache keep requests low.
+- **What we found** (re-checked 2026-10-27):
+  - `media=movie` returns nothing, so we search `media=all` and keep `kind === "feature-movie"`.
+  - Coverage is patchy: *Barbie* and *Amélie* are found, but *Inception*, *Aftersun* and *Past Lives* aren't.
+  - "inception" returns 67 *unrelated* films. So results are filtered by title relevance:
+    1. exact match;
+    2. starts with the query, ignoring a leading "The";
+    3. every typed word starts a title word, in any order;
+    4. matches with spaces ignored.
+
+    Anything else is dropped rather than shown to fill the list. At most 8 results are shown.
+- **States:** loading, results, "No matches on iTunes. That's fine: keep typing and save it as is.", and "Film search isn't available right now. You can still type the title yourself." Network errors, timeouts, rate limits and bad responses all show that last message, and the typed title still saves.
+- **The field:** an ARIA combobox. ↓/↑ move through the options, Enter chooses one (or submits, if none is highlighted), Esc closes the list, and Tab moves on. Focus stays in the input, and results are announced politely.
+- **Choosing a film:** links it ("Linked to iTunes · 2023", with **Unlink**). The diary card then shows a small poster and the year. Editing the title removes the link. Unlinked entries look exactly as before.
+- Posters are shown only from `https://*.mzstatic.com`. Any other URL is ignored.
+
+## Bringing Assignment 3 entries along
+
+Entries saved in a browser under `after-the-credits:entries:v1` belong to that browser, not an account. After sign-in, the diary offers: **"N films are saved in this browser only. Add them to your account?"**, with **Add them** and **Not now**.
+
+- **Never automatic.** Nothing is imported or deleted until the user chooses **Add them**.
+- **All or nothing, and safe to retry.**
+  - One insert with "on conflict do nothing". Entries keep their UUIDs, and old non-UUID ids get a stable derived UUID, so retrying never duplicates.
+  - The title, date, rating, reflection and original `created_at` are kept.
+- **Only into your account.** After inserting, the ids are read back. RLS shows only the user's own rows, so if any belongs to another account, nothing is moved.
+- **Backed up, never lost.** Only after everything succeeds is the original value copied to `…:entries:v1:imported-<timestamp>` and the original key removed. On any failure, `localStorage` is left exactly as it was.
 
 ## Flows
 
-> I watch a film → I log it while it's fresh → I come back next week, and it's still in my diary.
-
 ```mermaid
 flowchart TD
-    subgraph F1["1 · First visit"]
-        A["Open / with nothing saved"] --> B["Welcome: what it is, plus<br/>'Entries stay in this browser'"]
-        B --> C["Log your first film"]
+    subgraph F0["0 · Signed out"]
+        W["/ : welcome<br/>Start your diary · I already have one"] --> S["Clerk sign-up / sign-in"]
     end
-
-    subgraph F2["2 · Core task: log a film at /log"]
-        D["Title focused · date defaults to today"] --> E["Choose a 1–5 star rating<br/>add an optional reflection"]
-        E --> F{"Save to diary"}
-        F -- "invalid" --> G["Error beside each field and in a summary<br/>focus moves to the first one<br/>everything typed is kept"]
-        G --> E
-        F -- "valid" --> H["Saved to localStorage<br/>draft cleared"]
-        D -. "leave mid-entry" .-> X["Draft kept · restored on return<br/>with a 'Start over' option"]
+    subgraph F1["1 · First visit, signed in"]
+        E["/ : empty diary · Log your first film"]
+        O["If this browser has Assignment 3 entries:<br/>Add them to your account? · Not now"]
     end
-
-    subgraph F3["3 · Returning visit"]
-        I["Diary: banner '‹Title› is now in your diary'<br/>new entry highlighted"]
-        J["Come back days later → / reads localStorage"] --> K["Welcome back: last film logged,<br/>days since, this month's tally"]
-        K --> L["Entries newest first · delete with confirmation"]
+    subgraph F2["2 · Log a film at /log"]
+        T["Title: type it, or pick an iTunes suggestion"] --> R["Date (today) · 1–5 stars · optional reflection"]
+        R --> V{"Save to diary"}
+        V -- "invalid" --> X["Errors beside each field + summary<br/>focus on the first · nothing lost"]
+        X --> R
+        V -- "valid" --> P["Saved to Supabase (RLS) · draft cleared"]
+        T -. "leave mid-entry" .-> D["Draft kept on this device<br/>restored with Start over"]
     end
-
-    C --> D
-    H --> I
-    I -- "Log another film" --> D
-    K -- "Log what you've watched since" --> D
+    subgraph F3["3 · Coming back, on any device"]
+        B["Banner: ‹Title› is now in your diary"]
+        K["Welcome back · last film, days since, month's tally"] --> L["Entries newest first · poster + year if linked · delete with confirmation"]
+    end
+    S --> E
+    E --> O
+    E --> T
+    P --> B --> T
+    K --> T
 ```
 
-The diagram's source, with a table of every state on each route, is in [`docs/flows.md`](docs/flows.md).
+The Assignment 3 version of these flows, with a table of every state, is in [`docs/flows.md`](docs/flows.md).
 
-| Step | Route | What happens |
-|---|---|---|
-| **1. First visit** | `/` | With nothing saved, the empty state *is* the onboarding: one sentence about what the diary is, a note that entries stay in this browser, and one button, **Log your first film**. There's no tour or sign-up. |
-| **2. Core task** | `/log` | A single-column form: **Film title**, **Date watched** (defaults to today), **Rating** (1–5 stars, native radio buttons), and **Reflection** (optional, 500 characters). Errors sit under each field and say what to do next. A summary links to each error, and focus moves to the first one. What you typed is always kept, including as a draft if you leave the page. |
-| **3. Coming back** | `/` | After a save: a confirmation banner with **Log another film**, and the new entry highlighted. On a later visit: **Welcome back**, the last film logged and how long ago, this month's tally, and a button to log what you've watched since. Entries are listed newest first and can be deleted with an inline confirmation. |
+## Run it locally
 
-The shared header appears on every page: the wordmark, **Diary**, and **Log a film**. The current page is marked with `aria-current`.
+You need Node 18.18 or newer (tested with Node 24), a Clerk application (development instance), and a Supabase project with the migration above applied and Clerk added under **Authentication → Third-Party Auth**.
 
-## Run it
+Create `.env.local` (git-ignored) with:
+
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_…
+CLERK_SECRET_KEY=sk_test_…
+NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_…
+```
+
+Only the three `NEXT_PUBLIC_*` values reach the browser. `CLERK_SECRET_KEY` stays on the server.
 
 ```bash
 npm install
-npm run dev      # http://localhost:3000
-npm test         # Vitest: validation, dates, storage, drafts (23 tests)
+npm run dev        # http://localhost:3000
+npm test           # Vitest: 75 unit tests
+npm run test:e2e   # Playwright: 43 end-to-end tests (setup in e2e/README.md)
 npm run lint
-npm run build
+npm run build      # stop `npm run dev` first: both use .next/
 ```
 
-You'll need Node 18.18 or newer (tested with Node 24). To start fresh, clear this site's data in DevTools → Application → Local Storage.
+## Testing
 
-## Onboarding research
+- **Unit (Vitest, 75):**
+  - **Search:** relevance and ranking, including the "inception" case; iTunes parsing and the poster-URL check.
+  - **The search route:** 401, 400, 200, and 502 for network errors, timeouts, 429, 403, 5xx and bad bodies.
+  - **Entries:** row mapping, the manual-entry fallback, drafts with and without a film, compatibility with Phase 2 rows and old drafts, every import path, and the combobox keyboard rules.
+- **End-to-end (Playwright, 43):** runs on desktop and at 375 px and 320 px. It signs in two dedicated Clerk test users with one-time tickets and covers:
+  - protected routes;
+  - logging, reload, deletion, drafts, and the database being unavailable;
+  - every search state, the keyboard, and manual entry when search fails;
+  - the import;
+  - no sideways scrolling on phones;
+  - **two-user isolation**.
 
-Three subagents studied how **Letterboxd**, **Day One** and **The StoryGraph** welcome someone new: the first screen, what each asks for, and how soon you get something useful. All of the findings, each labelled verified, reported or assumption, are in [`docs/RESEARCH.md`](docs/RESEARCH.md). What we took from them:
+  Search is stubbed in the browser except for three live-iTunes tests. Test data is prefixed `E2E` and removed by the test that created it.
+- **Isolation:** in both directions, user B can't see, read (by id, title or listing), update, delete, or insert as user A, and nobody can change `user_id`.
+  - Every refusal is paired with the owner making the same request successfully, so an empty answer means RLS said no.
+  - The test was **watched failing first**: `E2E_ISOLATION_SELF_CHECK=1` points "user B" at user A, and it fails at the first isolation check.
+- **What the e2e run caught:** saving within a second or two of opening `/log`, before Clerk had loaded the session, showed a false "couldn't save". The form now waits for the session (`fix(log): wait for the Clerk session…`).
 
-- **Make the first log one action away.** Letterboxd's quick log and Day One's "+" led to one welcome button, then a one-screen form with one Save.
-- **Ask only for what's essential.** StoryGraph makes every extra field optional, so only title, date and rating are required here, with whole stars.
-- **Nothing before the first entry.** All three put accounts, paywalls, imports or surveys first, and we skip all of that.
-- **Give a reason to return without being social.** Day One's "On This Day" and StoryGraph's stats led to our "Welcome back" summary.
-- **Rejected:** Day One's pre-written sample entry. A made-up film in a personal diary would only confuse.
+## Security review (Phase 6)
 
-## First-run check: agent usability feedback
+No exploitable issues were found.
 
-There were two rounds. The first ran locally before deployment and drove the fixes listed below. The second was the brief's Step 8, run on the **live site**.
-
-### Round 2: live site (20 Oct 2026)
-
-**Setup:**
-- **Site:** https://after-the-credits-five.vercel.app (Next.js 15.5.28).
-- **Browser:** the agent drove a separate browser (Edge 155, headless) through the DevTools protocol, using a **brand-new temporary profile**. That gave it empty localStorage without touching the owner's real browser or diary entries.
-- **Input:** every step was done from the keyboard. The only exceptions were the native date picker's year/month/day segments, which were set by script.
-
-**Goal:** *"You're new here. Log three films you watched recently, then come back later and keep using the diary."*
-
-| Step | What the agent did | Result |
-|---|---|---|
-| First visit | Opened `/` with 0 localStorage keys | Welcome screen with one action. Tab order: Skip to content → wordmark → Diary → Log a film → **Log your first film** |
-| Film 1 | Pressed Enter on the empty form | Summary "2 things need fixing", with "Enter the film's title." and "Choose a rating from 1 to 5." beside the fields. Focus went to Title |
-| | Typed a title, tabbed past the rating, saved | Blocked with "Choose a rating from 1 to 5.". Focus went to the stars, and the **title, date and reflection were all kept** |
-| | Space + arrow keys to 4 stars, saved | Summary and field error cleared. Focus moved to the banner "*Paris, Texas* is now in your diary." |
-| Film 2 | Used **Log another film** from the banner | Opened `/log` with Title focused |
-| | Future date + 532-character reflection | "That date hasn't happened yet." and "Keep your reflection under 500 characters (you're at 532)." beside each field. Counter red at 532 / 500, title kept |
-| | Date in 1887 | "Films didn't exist before 1888. Check the year." |
-| | Fixed both, saved | The 5-star rating had been kept throughout. Saved and listed by viewing date |
-| Film 3 | Typed a title, left through the header, came back | **Draft restored** ("We kept the entry you hadn't saved yet." with Start over), saved with no reflection, draft cleared |
-| Refresh | Reloaded `/` | All 3 entries still there, no flash of the empty state |
-| Return later | Back-dated the test entries 3 days (temporary profile only) and reloaded | "**Welcome back** · You last logged *Paris, Texas* 3 days ago. That's 3 films so far in October." plus **Log what you've watched since** |
-| Delete | Keyboard: Delete → (focus on **Keep it**) → Shift+Tab → Delete | Entry removed, "…was removed from your diary." announced, focus moved to the heading, and the deletion survived a reload |
-| Labels | Checked every control | Film title, Date watched, Reflection (optional) each have a `<label>`, and Rating is a `fieldset` with a `legend` |
-| Contrast | Scanned the computed colors of every visible text element on the diary, the delete confirmation and the form with errors | **No pair below 4.5:1.** The lowest was 7.3:1 (error summary text) |
-| Responsive | 390 × 844 and 1440 × 900 | No horizontal scroll and 0 elements overflowing at 390px. The form stays one column |
-
-**Agent feedback (live)**
-- Every flow worked start to finish from the keyboard. The errors said exactly what to do next, and nothing had to be retyped after a mistake.
-- Coming back feels designed: the "Welcome back" line says what you logged last and invites you to add what you've watched since.
-- **Minor, not changed:**
-  - When you save a film with an *older* viewing date, its highlighted card sits lower in the list. With three entries it's visible, but in a long diary it could be off-screen. The banner still confirms the save. A possible later tweak is to name the date in the banner ("filed under Wed, 14 Oct").
-  - The native date input takes three Tab stops (year, month, day). That's standard browser behaviour, so it's left as is.
-  - Refreshing minutes after logging still says "Welcome back… earlier today". It's accurate, just a little eager.
-- No blocking issues, so **no code changes were needed after deployment.** Everything round 1 found was confirmed fixed on the live site.
-
-### Round 1: local production build, before deployment
-
-The agent used the app as a new user, keyboard only, against `next build && next start`, with the goal *"Log three films you watched recently, then come back later."*
-
-| # | Finding | Change | Commit |
-|---|---|---|---|
-| 1 | Typing a title on `/log`, then clicking the header wordmark, **lost the entry silently**. Only "Back to diary" asked for confirmation. | The form saves a draft as you type, restores it on return with **Start over**, and clears it after saving. This replaced the `confirm()` prompt. | `fix: keep an unsaved entry as a draft…` |
-| 2 | Coming back later looked **exactly like** the screen right after saving. Nothing acknowledged the return or gave a reason to keep going. | Added the **Welcome back** summary (last film logged, how long ago, this month's tally) and a prompt to log what you've watched since. | `feat: a returning-visit summary…` |
-| 3 | To log the second and third films, you had to go back up to the header after every save. | The save banner offers **Log another film**. | `feat: a returning-visit summary…` |
-| 4 | On the diary, nothing in the header showed **where you are**. | Added a **Diary** header link with `aria-current="page"`. | `a11y: show where you are…` |
-| 5 | Buttons and fields were styled separately in each component. | Moved them into shared `Button`, `ButtonLink` and `Field` components (`components/ui.tsx`). | `refactor: shared Button…` |
-
-**Considered, not changed:** the first visit needs one click (to `/log`) before you can type. An inline title field on the welcome screen would save that click, but it would split the form across two pages. The welcome screen already *is* that one action.
+- **Secrets:**
+  - Only the Clerk publishable key, the Supabase URL and the Supabase publishable key reach the browser.
+  - No secret appears in the client bundle, tracked files or git history.
+  - `.env*`, `.mcp.json`, `e2e/.auth/` (saved sign-in state), `test-results/` and `playwright-report/` are git-ignored.
+- **Agents** are denied read access to `.env` files (`.claude/settings.json`). The Supabase MCP server stays read-only except while an approved migration runs.
+- **Accepted for this assignment:**
+  - **The Clerk development instance:** it runs on the free tier and shows a development banner.
+  - **Dependency advisories, fixed only by major upgrades:** `postcss` inside Next.js 15 (it only processes our own CSS at build time), and `vitest`/`tinypool` (dev-only, never deployed).
+- **Left for later:**
+  - Clerk's `createRouteMatcher` deprecation. Data never depends on middleware alone: RLS protects the diary, and the search route checks `auth()` itself.
+  - An optional rewrite of the policies for Supabase's `auth_rls_initplan` performance warning, which looks like a false positive.
 
 ## Accessibility
 
-- **Keyboard:** everything is reachable and usable by keyboard (checked locally and on the live site in the first-run checks above). There's a skip link, focus moves on route change and after errors, saves and deletes, and the native radio group handles the rating.
-- **Labels:** every field has a visible `<label>`, with hints and errors linked through `aria-describedby`. Invalid fields get `aria-invalid`. Errors say "Error:" to screen readers and show a "!" icon, so they never rely on color alone.
-- **Contrast:** the agent checked it with the WCAG 2.1 formula, including semi-transparent surfaces. On the live site, a scan of every visible text element found nothing below 7.3:1.
+Everything from Assignment 3 still applies:
+- full keyboard use and a skip link;
+- visible labels, with hints and errors linked by `aria-describedby`;
+- errors that never rely on color alone;
+- contrast of 7.3:1 or better for all text;
+- `prefers-reduced-motion`.
 
-  | Pair | Ratio | Needs |
-  |---|---|---|
-  | Body text (ivory) on background | 16.5:1 | 4.5:1 |
-  | Secondary text (parchment) on card | 8.8:1 | 4.5:1 |
-  | Amber accent text on background | 10.2:1 | 4.5:1 |
-  | Error text on error summary | 7.4:1 | 4.5:1 |
-  | Button text on amber | 10.2:1 | 4.5:1 |
-  | Input border on field / empty-star outline | 3.7:1 / 4.0:1 | 3:1 (non-text) |
-
-- **Motion and layout:** `prefers-reduced-motion` turns off fades and the highlight glow. Checked at **390px** and **1440px**, locally and live, with no horizontal scroll and nothing overflowing.
+New in Assignment 4:
+- **The film search combobox** follows the ARIA 1.2 pattern, with live announcements.
+- **Posters** are decorative (`alt=""`), because the title is always next to them.
+- **Phones:** at 375 and 320 px there's no sideways scrolling, suggestions have 44 px touch targets, and inputs are 16 px so iOS doesn't zoom.
 
 ## Decisions
 
-- **Two routes.** `/` is the welcome, the diary and the returning view, depending on what's saved. `/log` is the form. A detail page or a separate onboarding route would add steps without adding value.
-- **Storage** (`lib/entries.ts`):
-  - Entries live under `after-the-credits:entries:v1`, and the draft under `after-the-credits:draft:v1`.
-  - Every read validates the shape of each entry. If stored data can't be read, it's copied to `…:corrupt-<timestamp>` rather than deleted.
-  - Every write re-reads storage first, so entries saved in another tab aren't overwritten.
-  - If storage is blocked, the app shows a clear notice, and a failed save keeps everything typed.
-- **Dates** are stored as local `YYYY-MM-DD` days, never UTC timestamps, so a late-evening viewing doesn't move to the next day.
-- **Postponed:** editing, search and filters, half-star ratings, tags and posters, import/export, and fuller stats.
+- **Browser to Supabase directly**, with RLS as the only gate, rather than API routes for diary data. It means less server code, and the database enforces privacy even if the app has a bug.
+- **Third-Party Auth** rather than Clerk JWT templates, which are deprecated: no shared JWT secret, and Clerk's own session token is used.
+- **`user_id` is `text`**, because Clerk ids look like `user_…`, not UUIDs. It's filled in by the database, never by the client.
+- **The form draft stays in `localStorage`.** It's a per-device convenience, not diary data.
+- **Postponed:** editing entries, filters and stats, half stars, tags, export, a production Clerk instance with a custom domain, and the dependency and middleware upgrades above.
 
 ## How it was built (agentic workflow)
 
-Every change was made by directing Claude Code. The `AGENTS.md` file gives coding agents the project's constraints, commands and conventions.
+Every change was made by directing Claude Code. `AGENTS.md` holds the constraints, architecture, data model, iTunes findings and conventions, and each phase needed the owner's go-ahead:
 
-1. **Plan mode:** we defined the user, the three flows, routes, fields and error messages, scope cuts, and edge cases such as localStorage, dates and multiple tabs. The plan was approved before any code was written.
-2. **Research:** an inline web pass first, then three parallel subagents during the audit (see above).
-3. **Incremental build:** small conventional commits (scaffold → design tokens → storage → validation with tests → form → diary → delete). Tests, lint and build ran before commits.
-4. **Browser QA:** the agent tested each flow in Chrome against production builds. This caught a real bug: the display fonts weren't loading. They're fixed in `fix: resolve display and body fonts…`.
-5. **Compliance audit and first-run check** against the assignment brief. Its findings became the fixes listed above.
-6. **Deployment:** Vercel blocked the first deploy because Next.js 15.5.4 was a vulnerable release. The fix upgraded to the patched 15.5.28 on the same 15.x line (`fix(deps): upgrade Next.js…`).
-7. **Live first-run check** in an isolated browser profile. It found no blocking issues.
+0. **Guardrails:** deny agent reads of `.env` files, and document the plan in `AGENTS.md`.
+1. **Clerk:** provider, middleware, sign-in/up routes, and the header user menu.
+2. **Supabase:** design reviewed first, then the migration applied through the MCP server (write access on only for that call), then verified with catalog queries, advisors and a forged-insert test. Then `lib/entries.ts` moved onto Supabase.
+3. **Import** of `localStorage` entries.
+4. **iTunes search:** the API was re-checked live, the plan approved, then built in six commits.
+5. **Playwright:** 43 end-to-end tests, including two-user isolation that was watched failing first. They found one real bug, which was fixed.
+6. **Security review,** then deployment to its own Vercel project.
 
-`git log --oneline` shows the full progression.
+`git log --oneline main..assignment-4-fullstack` shows the full progression.
 
 ## Deployment
 
-Deployed on Vercel's Hobby plan from `main`, with the framework preset (Next.js) and no environment variables or extra config. Every page is static (`○` in the build output). Pushing to `main` redeploys.
+Assignment 4 deploys as a **separate Vercel project** connected to the same GitHub repository, with **`assignment-4-fullstack` as its production branch**. The Assignment 3 project keeps deploying `main`, unchanged.
+
+Environment variables (Production and Preview): `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` (marked Sensitive), `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. No `E2E_*` values, and no Supabase secret key.

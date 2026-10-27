@@ -101,7 +101,7 @@ npm run build   # production build; must pass before committing
 | `docs/RESEARCH.md` | Onboarding research and the design decisions it led to |
 
 ## Build phases (each needs the owner's go-ahead)
-0. Deny rule + this file. 1. Clerk. 2. Supabase table, RLS, `lib/entries.ts` on Supabase. 3. `localStorage` import. 4. iTunes search on `/log`. 5. Playwright two-user test, watched failing first. 6. `/security-review`, merge, Vercel deploy.
+0. Deny rule + this file. 1. Clerk. 2. Supabase table, RLS, `lib/entries.ts` on Supabase. 3. `localStorage` import. 4. iTunes search on `/log`. 5. Playwright two-user test, watched failing first. 6. `/security-review`, then deploy as a **separate Vercel project** whose production branch is `assignment-4-fullstack`. `main` stays the Assignment 3 site: don't merge into it.
 
 ## Conventions
 - Diary data goes through `lib/entries.ts` only, and only in effects or event handlers. Never during render.
@@ -109,4 +109,4 @@ npm run build   # production build; must pass before committing
 - Every field has a visible `<label>`. Use the `Field` primitive and native controls.
 - Colors come from the `@theme` tokens in `app/globals.css`. Any new color pairing must keep text at ≥ 4.5:1 contrast (non-text ≥ 3:1). Note the ratio in the comment there.
 - Keep commits small and conventional (`feat:`, `fix:`, `docs:`, `a11y:`, `chore:`), and run `npm test && npm run lint && npm run build` before each.
-- Work on `assignment-4-fullstack`. Don't merge, deploy, push, or change the database without the owner's approval.
+- Work on `assignment-4-fullstack`. Don't merge, deploy, push, or change the database without the owner's approval. Never merge into `main` (the live Assignment 3 site).
