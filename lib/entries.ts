@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseDay } from "./date";
-import { REFLECTION_MAX, TITLE_MAX } from "./validate";
+import { isArtworkUrl, isFilmLink, type FilmLink } from "./films";
+import { REFLECTION_MAX, TITLE_MAX, type EntryFormValues } from "./validate";
 
 export type Rating = 1 | 2 | 3 | 4 | 5;
 
@@ -11,6 +12,11 @@ export type Entry = {
   rating: Rating;
   reflection: string;
   createdAt: string; // ISO timestamp
+  // From the iTunes result the title was chosen from. All null for typed
+  // titles and for entries imported from this browser.
+  itunesId: number | null;
+  artworkUrl: string | null;
+  releaseYear: number | null;
 };
 
 export type NewEntry = Omit<Entry, "id" | "createdAt">;
@@ -24,7 +30,7 @@ export type LoadResult = { status: "ok"; entries: Entry[] } | { status: "unavail
 // ---------------------------------------------------------------------------
 
 const TABLE = "entries";
-const COLUMNS = "id, title, watched_on, rating, reflection, created_at";
+const COLUMNS = "id, title, watched_on, rating, reflection, created_at, itunes_id, artwork_url, release_year";
 
 export type EntryRow = {
   id: string;
@@ -33,6 +39,10 @@ export type EntryRow = {
   rating: number;
   reflection: string;
   created_at: string;
+  // Optional so rows selected before Phase 4 still map.
+  itunes_id?: number | null;
+  artwork_url?: string | null;
+  release_year?: number | null;
 };
 
 export function fromRow(row: EntryRow): Entry {
@@ -45,6 +55,10 @@ export function fromRow(row: EntryRow): Entry {
     // Postgres returns "…+00:00" with microseconds; normalise so sorting and
     // date maths match entries created in this browser.
     createdAt: new Date(row.created_at).toISOString(),
+    itunesId: row.itunes_id ?? null,
+    // Only Apple's image CDN is ever rendered as a poster.
+    artworkUrl: isArtworkUrl(row.artwork_url) ? row.artwork_url : null,
+    releaseYear: row.release_year ?? null,
   };
 }
 
@@ -54,6 +68,27 @@ export function toRow(input: NewEntry) {
     watched_on: input.watchedOn,
     rating: input.rating,
     reflection: input.reflection,
+    itunes_id: input.itunesId,
+    artwork_url: input.artworkUrl,
+    release_year: input.releaseYear,
+  };
+}
+
+/**
+ * What the form saves. A typed title (no film chosen, or search unavailable)
+ * saves with the iTunes fields null; a link that doesn't check out is dropped
+ * rather than blocking the save.
+ */
+export function toNewEntry(values: EntryFormValues, film: FilmLink | null): NewEntry {
+  const link = isFilmLink(film) ? film : null;
+  return {
+    title: values.title.trim(),
+    watchedOn: values.watchedOn,
+    rating: Number(values.rating) as Rating,
+    reflection: values.reflection.trim(),
+    itunesId: link?.itunesId ?? null,
+    artworkUrl: link?.artworkUrl ?? null,
+    releaseYear: link?.releaseYear ?? null,
   };
 }
 
@@ -95,9 +130,12 @@ export async function deleteEntry(db: SupabaseClient, id: string): Promise<void>
 // ---------------------------------------------------------------------------
 
 export const STORAGE_KEY = "after-the-credits:entries:v1";
+
+/** The Assignment 3 shape: no iTunes fields. */
+export type LocalEntry = Pick<Entry, "id" | "title" | "watchedOn" | "rating" | "reflection" | "createdAt">;
 const IMPORT_BATCH_CHECK = 100; // ids per verification query, to keep URLs short
 
-export function isEntry(value: unknown): value is Entry {
+export function isLocalEntry(value: unknown): value is LocalEntry {
   if (typeof value !== "object" || value === null) return false;
   const e = value as Record<string, unknown>;
   return (
@@ -116,12 +154,12 @@ export function isEntry(value: unknown): value is Entry {
 }
 
 /** Parses the stored JSON. Invalid items are dropped; an unreadable value sets `corrupt`. */
-export function parseEntries(raw: string | null): { entries: Entry[]; corrupt: boolean; dropped: number } {
+export function parseEntries(raw: string | null): { entries: LocalEntry[]; corrupt: boolean; dropped: number } {
   if (raw === null) return { entries: [], corrupt: false, dropped: 0 };
   try {
     const data: unknown = JSON.parse(raw);
     if (!Array.isArray(data)) return { entries: [], corrupt: true, dropped: 0 };
-    const entries = data.filter(isEntry);
+    const entries = data.filter(isLocalEntry);
     return { entries, corrupt: false, dropped: data.length - entries.length };
   } catch {
     return { entries: [], corrupt: true, dropped: 0 };
@@ -129,11 +167,11 @@ export function parseEntries(raw: string | null): { entries: Entry[]; corrupt: b
 }
 
 // Mirrors the table's check constraints, so one bad entry can't fail the whole import.
-function isImportable(entry: Entry): boolean {
+function isImportable(entry: LocalEntry): boolean {
   return entry.title.length <= TITLE_MAX && entry.reflection.length <= REFLECTION_MAX;
 }
 
-export type LocalEntries = { raw: string; entries: Entry[]; skipped: number };
+export type LocalEntries = { raw: string; entries: LocalEntry[]; skipped: number };
 
 /** Read-only look at this browser's Assignment 3 entries. Null when there's nothing to offer. */
 export function findLocalEntries(): LocalEntries | null {
@@ -167,11 +205,15 @@ export async function importId(localId: string): Promise<string> {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-export async function toImportRow(entry: Entry) {
+export async function toImportRow(entry: LocalEntry) {
   const created = Date.parse(entry.createdAt);
+  // Only the Assignment 3 fields: imported entries stay unlinked.
   return {
     id: await importId(entry.id),
-    ...toRow(entry),
+    title: entry.title,
+    watched_on: entry.watchedOn,
+    rating: entry.rating,
+    reflection: entry.reflection,
     // Keep when it was logged; if that was never recorded properly, the database uses now().
     ...(Number.isNaN(created) ? {} : { created_at: new Date(created).toISOString() }),
   };
@@ -235,7 +277,7 @@ function backUpAndClear(raw: string): boolean {
 // Unsaved form contents, so leaving /log by any link doesn't lose what was typed.
 export const DRAFT_KEY = "after-the-credits:draft:v1";
 
-export type Draft = { title: string; watchedOn: string; rating: string; reflection: string };
+export type Draft = EntryFormValues & { film: FilmLink | null };
 
 export function loadDraft(): Draft | null {
   try {
@@ -243,7 +285,14 @@ export function loadDraft(): Draft | null {
     if (typeof data !== "object" || data === null) return null;
     const d = data as Record<string, unknown>;
     const field = (v: unknown) => (typeof v === "string" ? v : "");
-    return { title: field(d.title), watchedOn: field(d.watchedOn), rating: field(d.rating), reflection: field(d.reflection) };
+    return {
+      title: field(d.title),
+      watchedOn: field(d.watchedOn),
+      rating: field(d.rating),
+      reflection: field(d.reflection),
+      // Drafts from before film search have no link; a malformed one is dropped.
+      film: isFilmLink(d.film) ? d.film : null,
+    };
   } catch {
     return null;
   }

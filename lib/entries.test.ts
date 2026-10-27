@@ -17,6 +17,7 @@ import {
   saveEntry,
   sortEntries,
   toImportRow,
+  toNewEntry,
   toRow,
   type Entry,
   type EntryRow,
@@ -56,8 +57,16 @@ const entry = (overrides: Partial<Entry> = {}): Entry => ({
   rating: 5,
   reflection: "",
   createdAt: "2026-10-01T20:00:00.000Z",
+  itunesId: null,
+  artworkUrl: null,
+  releaseYear: null,
   ...overrides,
 });
+
+// A title typed by hand: nothing chosen from search.
+const UNLINKED = { itunesId: null, artworkUrl: null, releaseYear: null };
+const ART = "https://is1-ssl.mzstatic.com/image/thumb/x/200x200bb.jpg";
+const BARBIE = { itunesId: 1692915162, artworkUrl: ART, releaseYear: 2023 };
 
 let storage: MemoryStorage;
 
@@ -138,13 +147,56 @@ describe("row mapping", () => {
       rating: 5,
       reflection: "",
       createdAt: "2026-10-01T20:00:00.123Z",
+      ...UNLINKED,
     });
   });
 
+  it("maps a linked film's iTunes id, poster and year", () => {
+    const entry = fromRow(row({ itunes_id: 1692915162, artwork_url: ART, release_year: 2023 }));
+    expect(entry).toMatchObject(BARBIE);
+  });
+
+  it("still maps rows saved before film search, and never renders a poster from elsewhere", () => {
+    const before = { id: "a", title: "Stalker", watched_on: "2026-10-10", rating: 4, reflection: "", created_at: "2026-10-10T20:00:00Z" };
+    expect(fromRow(before)).toMatchObject(UNLINKED);
+    expect(fromRow(row({ artwork_url: "https://evil.example/poster.jpg" })).artworkUrl).toBeNull();
+  });
+
   it("never sends user_id; the database takes it from the session token", () => {
-    const sent = toRow({ title: "Stalker", watchedOn: "2026-10-10", rating: 4, reflection: "Slow." });
-    expect(sent).toEqual({ title: "Stalker", watched_on: "2026-10-10", rating: 4, reflection: "Slow." });
+    const sent = toRow({ title: "Stalker", watchedOn: "2026-10-10", rating: 4, reflection: "Slow.", ...UNLINKED });
+    expect(sent).toEqual({
+      title: "Stalker",
+      watched_on: "2026-10-10",
+      rating: 4,
+      reflection: "Slow.",
+      itunes_id: null,
+      artwork_url: null,
+      release_year: null,
+    });
     expect(sent).not.toHaveProperty("user_id");
+  });
+});
+
+describe("toNewEntry (what the form saves)", () => {
+  const values = { title: "  Paris, Texas ", watchedOn: "2026-10-01", rating: "5", reflection: " Wim Wenders. " };
+
+  it("saves a typed title with no iTunes link, so manual entry never depends on search", () => {
+    expect(toNewEntry(values, null)).toEqual({
+      title: "Paris, Texas",
+      watchedOn: "2026-10-01",
+      rating: 5,
+      reflection: "Wim Wenders.",
+      ...UNLINKED,
+    });
+  });
+
+  it("keeps the link when a film was chosen from search", () => {
+    expect(toNewEntry({ ...values, title: "Barbie" }, BARBIE)).toMatchObject({ title: "Barbie", ...BARBIE });
+  });
+
+  it("drops a link that doesn't check out instead of blocking the save", () => {
+    const bad = { itunesId: 1, artworkUrl: "javascript:alert(1)", releaseYear: 2023 };
+    expect(toNewEntry(values, bad)).toMatchObject({ title: "Paris, Texas", ...UNLINKED });
   });
 });
 
@@ -165,15 +217,28 @@ describe("loadEntries / saveEntry / deleteEntry", () => {
 
   it("returns the saved entry as the database stored it", async () => {
     const { db, calls } = fakeDb({ data: row({ title: "Stalker" }) });
-    const saved = await saveEntry(db, { title: "Stalker", watchedOn: "2026-10-01", rating: 5, reflection: "" });
+    const saved = await saveEntry(db, { title: "Stalker", watchedOn: "2026-10-01", rating: 5, reflection: "", ...UNLINKED });
     expect(saved.title).toBe("Stalker");
-    expect(calls).toContainEqual(["insert", { title: "Stalker", watched_on: "2026-10-01", rating: 5, reflection: "" }]);
+    expect(calls).toContainEqual([
+      "insert",
+      { title: "Stalker", watched_on: "2026-10-01", rating: 5, reflection: "", itunes_id: null, artwork_url: null, release_year: null },
+    ]);
+  });
+
+  it("saves a linked film's iTunes id, poster and year", async () => {
+    const { db, calls } = fakeDb({ data: row({ title: "Barbie", itunes_id: 1692915162, artwork_url: ART, release_year: 2023 }) });
+    const saved = await saveEntry(db, { title: "Barbie", watchedOn: "2026-10-01", rating: 4, reflection: "", ...BARBIE });
+    expect(saved).toMatchObject({ title: "Barbie", ...BARBIE });
+    expect(calls).toContainEqual([
+      "insert",
+      expect.objectContaining({ itunes_id: 1692915162, artwork_url: ART, release_year: 2023 }),
+    ]);
   });
 
   it("throws when a save is rejected, so the form can keep what was typed", async () => {
     const { db } = fakeDb({ error: { message: "new row violates row-level security policy" } });
     await expect(
-      saveEntry(db, { title: "X", watchedOn: "2026-10-10", rating: 3, reflection: "" }),
+      saveEntry(db, { title: "X", watchedOn: "2026-10-10", rating: 3, reflection: "", ...UNLINKED }),
     ).rejects.toThrow("row-level security");
   });
 
@@ -187,7 +252,7 @@ describe("loadEntries / saveEntry / deleteEntry", () => {
     const local = JSON.stringify([entry({ id: "from-assignment-3" })]);
     storage.setItem(STORAGE_KEY, local);
     await loadEntries(fakeDb({ data: [] }).db);
-    await saveEntry(fakeDb({ data: row() }).db, { title: "X", watchedOn: "2026-10-10", rating: 3, reflection: "" });
+    await saveEntry(fakeDb({ data: row() }).db, { title: "X", watchedOn: "2026-10-10", rating: 3, reflection: "", ...UNLINKED });
     await deleteEntry(fakeDb({}).db, "from-assignment-3");
     expect(storage.getItem(STORAGE_KEY)).toBe(local);
     expect(storage.keys()).toEqual([STORAGE_KEY]);
@@ -307,11 +372,11 @@ describe("importing entries saved in this browser", () => {
 
 describe("drafts", () => {
   it("keeps a non-empty draft and forgets an empty one", () => {
-    saveDraft({ title: "Aftersun", watchedOn: "2026-10-17", rating: "", reflection: "" });
+    saveDraft({ title: "Aftersun", watchedOn: "2026-10-17", rating: "", reflection: "", film: null });
     expect(loadDraft()?.title).toBe("Aftersun");
-    saveDraft({ title: "  ", watchedOn: "2026-10-17", rating: "", reflection: "" });
+    saveDraft({ title: "  ", watchedOn: "2026-10-17", rating: "", reflection: "", film: null });
     expect(loadDraft()).toBeNull();
-    saveDraft({ title: "X", watchedOn: "", rating: "3", reflection: "" });
+    saveDraft({ title: "X", watchedOn: "", rating: "3", reflection: "", film: null });
     clearDraft();
     expect(loadDraft()).toBeNull();
   });
@@ -319,5 +384,17 @@ describe("drafts", () => {
   it("ignores a malformed draft", () => {
     storage.setItem(DRAFT_KEY, "not json");
     expect(loadDraft()).toBeNull();
+  });
+
+  it("keeps a chosen film with the draft", () => {
+    saveDraft({ title: "Barbie", watchedOn: "2026-10-17", rating: "4", reflection: "", film: BARBIE });
+    expect(loadDraft()).toMatchObject({ title: "Barbie", film: BARBIE });
+  });
+
+  it("loads drafts saved before film search as unlinked, and drops a malformed link", () => {
+    storage.setItem(DRAFT_KEY, JSON.stringify({ title: "Aftersun", watchedOn: "2026-10-17", rating: "5", reflection: "" }));
+    expect(loadDraft()).toEqual({ title: "Aftersun", watchedOn: "2026-10-17", rating: "5", reflection: "", film: null });
+    storage.setItem(DRAFT_KEY, JSON.stringify({ title: "X", watchedOn: "", rating: "", reflection: "", film: { itunesId: "1" } }));
+    expect(loadDraft()?.film).toBeNull();
   });
 });

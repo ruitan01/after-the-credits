@@ -6,7 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import StarRating from "@/components/StarRating";
 import { Button, Field, inputClass } from "@/components/ui";
 import { localToday } from "@/lib/date";
-import { clearDraft, loadDraft, saveDraft, saveEntry, type Rating } from "@/lib/entries";
+import { clearDraft, loadDraft, saveDraft, saveEntry, toNewEntry } from "@/lib/entries";
+import type { FilmLink } from "@/lib/films";
 import { useSupabase } from "@/lib/supabase";
 import {
   EARLIEST_DAY,
@@ -36,6 +37,8 @@ export default function EntryForm() {
     rating: "",
     reflection: "",
   });
+  // The iTunes film the title was chosen from; null for a typed title.
+  const [film, setFilm] = useState<FilmLink | null>(null);
   const [errors, setErrors] = useState<EntryErrors>({});
   const [dirty, setDirty] = useState<Partial<Record<EntryField, boolean>>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -53,7 +56,9 @@ export default function EntryForm() {
     setToday(day);
     const draft = loadDraft();
     if (draft) {
-      setValues({ ...draft, watchedOn: draft.watchedOn || day });
+      const { film: draftFilm, ...draftValues } = draft;
+      setValues({ ...draftValues, watchedOn: draftValues.watchedOn || day });
+      setFilm(draftFilm);
       setRestored(true);
     } else {
       setValues((v) => (v.watchedOn ? v : { ...v, watchedOn: day }));
@@ -64,12 +69,13 @@ export default function EntryForm() {
 
   // Keep the draft in step with what's typed (and drop it once it's empty).
   useEffect(() => {
-    if (ready && !saving) saveDraft(values);
-  }, [values, ready, saving]);
+    if (ready && !saving) saveDraft({ ...values, film });
+  }, [values, film, ready, saving]);
 
   function startOver() {
     clearDraft();
     setValues({ title: "", watchedOn: today, rating: "", reflection: "" });
+    setFilm(null);
     setErrors({});
     setDirty({});
     setSubmitted(false);
@@ -115,12 +121,7 @@ export default function EntryForm() {
     setSaving(true);
     try {
       if (!db) throw new Error("Not signed in yet.");
-      const entry = await saveEntry(db, {
-        title: values.title.trim(),
-        watchedOn: values.watchedOn,
-        rating: Number(values.rating) as Rating,
-        reflection: values.reflection.trim(),
-      });
+      const entry = await saveEntry(db, toNewEntry(values, film));
       clearDraft();
       router.push(`/?saved=${encodeURIComponent(entry.id)}`);
     } catch {
