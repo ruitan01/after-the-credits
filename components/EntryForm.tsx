@@ -21,6 +21,9 @@ import {
   type EntryFormValues,
 } from "@/lib/validate";
 
+// How long a save waits for Clerk to finish loading the session before giving up.
+const SESSION_WAIT_MS = 15_000;
+
 const LABELS: Record<EntryField, string> = {
   title: "Film title",
   watchedOn: "Date watched",
@@ -44,6 +47,7 @@ export default function EntryForm() {
   const [dirty, setDirty] = useState<Partial<Record<EntryField, boolean>>>({});
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [waitingForSession, setWaitingForSession] = useState(false);
   const [formError, setFormError] = useState("");
   const [restored, setRestored] = useState(false);
   const [ready, setReady] = useState(false);
@@ -120,20 +124,47 @@ export default function EntryForm() {
     }
 
     setSaving(true);
+    // Clerk may still be loading the session right after the page opens; the
+    // effect below saves as soon as it's ready instead of failing.
+    if (!db) setWaitingForSession(true);
+    else await persist(db);
+  }
+
+  async function persist(client: NonNullable<typeof db>) {
     try {
-      if (!db) throw new Error("Not signed in yet.");
-      const entry = await saveEntry(db, toNewEntry(values, film));
+      const entry = await saveEntry(client, toNewEntry(values, film));
       clearDraft();
       router.push(`/?saved=${encodeURIComponent(entry.id)}`);
     } catch {
-      setSaving(false);
-      setFormError(
-        "We couldn't save this entry. Check your connection and try again. " +
-          "Nothing you typed has been lost: it's kept as a draft in this browser.",
-      );
-      summaryRef.current?.focus();
+      saveFailed();
     }
   }
+
+  function saveFailed() {
+    setSaving(false);
+    setFormError(
+      "We couldn't save this entry. Check your connection and try again. " +
+        "Nothing you typed has been lost: it's kept as a draft in this browser.",
+    );
+    summaryRef.current?.focus();
+  }
+
+  useEffect(() => {
+    if (!waitingForSession) return;
+    if (db) {
+      setWaitingForSession(false);
+      persist(db);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setWaitingForSession(false);
+      saveFailed();
+    }, SESSION_WAIT_MS);
+    return () => window.clearTimeout(timer);
+    // persist and saveFailed read the latest render's values; re-running on
+    // every render isn't wanted, only when the session or the wait changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingForSession, db]);
 
   const errorList = FIELD_ORDER.filter((f) => errors[f]);
 
