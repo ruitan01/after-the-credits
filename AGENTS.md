@@ -81,7 +81,9 @@ npm run build   # production build; must pass before committing
 | `app/page.tsx` → `components/Diary.tsx` | `/`: loading, first-visit welcome, returning diary, save banner |
 | `app/log/page.tsx` → `components/EntryForm.tsx` | `/log`: the entry form |
 | `components/ui.tsx` | Shared `Button`, `ButtonLink`, `Field`, and `FieldError` primitives |
-| `lib/entries.ts` | `Entry` type and all diary storage. Currently `localStorage`; becomes Supabase in Phase 2 |
+| `lib/entries.ts` | `Entry` type and all diary storage (Supabase `public.entries`), plus read-only parsers for the Assignment 3 `localStorage` entries (Phase 3 import) and the form draft helpers |
+| `lib/supabase.ts` | `useSupabase()`: browser client with the publishable key and the Clerk session token; null until signed in |
+| `supabase/migrations/` | Record of each migration applied through the Supabase MCP server |
 | `lib/validate.ts` | Pure validators and the user-facing error messages |
 | `lib/date.ts` | Local-day date helpers (never use `toISOString()` for days) |
 | `.claude/settings.json` | Denies agents read access to `.env` files |
