@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { card, deleteTitles, rest, rowsTitled, signedIn, uniqueTitle } from "./helpers";
+import { appAlert, card, deleteTitles, rest, rowsTitled, signedIn, uniqueTitle } from "./helpers";
 
 // Assignment 3 entries saved in a browser, imported into an account (Phase 3).
 // Everything here runs in fresh, isolated browser contexts seeded with test
@@ -77,7 +77,7 @@ test("imports once, keeps a backup, and never into a second account", async ({ b
     // Another account with the same browser data: refused, nothing moved.
     await seed(b.page, raw);
     await b.page.getByRole("button", { name: "Add them" }).click();
-    await expect(b.page.getByRole("alert")).toContainText("already in a different account, so nothing was moved");
+    await expect(appAlert(b.page)).toContainText("already in a different account, so nothing was moved");
     expect(await storage(b.page)).toEqual({ [KEY]: raw });
     for (const title of titles) expect(await rowsTitled(b.page, title)).toEqual([]);
   } finally {
@@ -99,8 +99,9 @@ test("a failed import changes nothing and can be retried", async ({ browser }) =
     await a.page.route(/\/rest\/v1\/entries/, (route) =>
       route.request().method() === "POST" ? route.abort("internetdisconnected") : route.fallback(),
     );
-    await a.page.getByRole("button", { name: "Add them" }).click();
-    await expect(a.page.getByRole("alert")).toContainText("We couldn't add your films, so nothing was changed.");
+    // One entry, so the offer reads "Add it".
+    await a.page.getByRole("button", { name: "Add it" }).click();
+    await expect(appAlert(a.page)).toContainText("We couldn't add your films, so nothing was changed.");
     expect(await storage(a.page)).toEqual({ [KEY]: raw });
 
     await a.page.unroute(/\/rest\/v1\/entries/);

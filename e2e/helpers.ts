@@ -141,6 +141,16 @@ export async function logFilm(page: Page, title: string, { stars = 4, reflection
   await expect(page.getByRole("status").filter({ hasText: "is now in your diary" })).toBeVisible();
 }
 
+/**
+ * A search message as shown in the suggestion panel. The same words are also
+ * in a visually hidden live region for screen readers; this skips that copy.
+ */
+export const searchMessage = (page: Page, text: string | RegExp) =>
+  page.locator("p:not([role='status'])").filter({ hasText: text });
+
+/** The app's alerts. Scoped to <main>: Next.js adds its own empty role="alert" route announcer to every page. */
+export const appAlert = (page: Page) => page.getByRole("main").getByRole("alert");
+
 export const card = (page: Page, title: string) =>
   page.getByRole("article").filter({ has: page.getByRole("heading", { name: title }) });
 

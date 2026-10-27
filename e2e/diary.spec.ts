@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { authFile, card, deleteTitles, logFilm, rate, rowsTitled, stubSearch, titleField, uniqueTitle } from "./helpers";
+import { appAlert, authFile, card, deleteTitles, logFilm, rate, rowsTitled, stubSearch, titleField, uniqueTitle } from "./helpers";
 
 test.use({ storageState: authFile("a") });
 
@@ -58,7 +58,7 @@ test("Keep it cancels a delete", async ({ page }) => {
 test("explains what's missing and focuses the first problem", async ({ page }) => {
   await page.goto("/log");
   await page.getByRole("button", { name: "Save to diary" }).click();
-  const summary = page.getByRole("alert");
+  const summary = appAlert(page);
   await expect(summary).toContainText("Enter the film's title.");
   await expect(summary).toContainText("Choose a rating from 1 to 5.");
   await expect(titleField(page)).toBeFocused();
@@ -100,7 +100,7 @@ test.describe("when the database can't be reached", () => {
     await page.getByLabel(/Reflection/).fill("Still here?");
     await page.getByRole("button", { name: "Save to diary" }).click();
 
-    await expect(page.getByRole("alert")).toContainText("We couldn't save this entry.");
+    await expect(appAlert(page)).toContainText("We couldn't save this entry.");
     await expect(page).toHaveURL(/\/log$/);
     await expect(titleField(page)).toHaveValue(title);
     await expect(page.getByLabel(/Reflection/)).toHaveValue("Still here?");
@@ -117,10 +117,10 @@ test.describe("when the database can't be reached", () => {
       route.request().method() === "GET" ? route.fulfill({ status: 503, json: { message: "down" } }) : route.fallback(),
     );
     await page.goto("/");
-    await expect(page.getByRole("alert")).toContainText(/Your diary can.t open right now/);
+    await expect(appAlert(page)).toContainText(/Your diary can.t open right now/);
     await page.unroute(/\/rest\/v1\/entries/);
     await page.getByRole("button", { name: "Try again" }).click();
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(appAlert(page)).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Log (your first film|what you.ve watched since)/ }).first()).toBeVisible();
   });
 });

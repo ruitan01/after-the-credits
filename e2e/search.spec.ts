@@ -2,12 +2,14 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   ART,
   BARBIE,
+  appAlert,
   authFile,
   card,
   deleteTitles,
   film,
   rate,
   rowsTitled,
+  searchMessage,
   stubPosters,
   stubSearch,
   titleField,
@@ -140,7 +142,7 @@ test.describe("keyboard", () => {
     await field.press("Enter");
     await expect(field).toHaveValue("Barbie Fairytopia: Mermaidia");
     await expect(page).toHaveURL(/\/log$/);
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(appAlert(page)).toHaveCount(0);
 
     await field.pressSequentially(" x");
     await expect(page.getByText(/Linked to iTunes/)).toHaveCount(0);
@@ -155,7 +157,7 @@ test.describe("keyboard", () => {
     await expect(listbox(page)).toBeVisible();
     await titleField(page).press("Enter");
     // Submitted: no rating yet, so validation answers.
-    await expect(page.getByRole("alert")).toContainText("Choose a rating from 1 to 5.");
+    await expect(appAlert(page)).toContainText("Choose a rating from 1 to 5.");
   });
 });
 
@@ -164,7 +166,8 @@ test.describe("states, and manual entry whatever search does", () => {
     await stubSearch(page, []);
     await page.goto("/log");
     await titleField(page).fill("aftersun");
-    await expect(page.getByText("No matches on iTunes. That's fine: keep typing and save it as is.")).toBeVisible();
+    await expect(searchMessage(page, "No matches on iTunes. That's fine: keep typing and save it as is.")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "No matches on iTunes" })).toBeAttached();
     await expect(titleField(page)).toHaveAttribute("aria-expanded", "false");
     await titleField(page).press("ArrowDown");
     await expect(listbox(page)).toHaveCount(0);
@@ -182,8 +185,9 @@ test.describe("states, and manual entry whatever search does", () => {
       await page.goto("/log");
       await titleField(page).fill(title);
       await expect(
-        page.getByText("Film search isn't available right now. You can still type the title yourself."),
+        searchMessage(page, "Film search isn't available right now. You can still type the title yourself."),
       ).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Film search isn't available" })).toBeAttached();
       await rate(page, 4);
       await save(page);
       await expect(savedBanner(page)).toBeVisible();
@@ -197,7 +201,7 @@ test.describe("states, and manual entry whatever search does", () => {
     await stubSearch(page, (route) => route.abort("internetdisconnected"));
     await page.goto("/log");
     await titleField(page).fill(title);
-    await expect(page.getByText(/Film search isn't available right now/)).toBeVisible();
+    await expect(searchMessage(page, /Film search isn't available right now/)).toBeVisible();
     await rate(page, 2);
     await save(page);
     await expect(card(page, title)).toBeVisible();
@@ -212,7 +216,7 @@ test.describe("states, and manual entry whatever search does", () => {
     });
     await page.goto("/log");
     await titleField(page).fill(title);
-    await expect(page.getByText("Searching iTunes…")).toBeVisible();
+    await expect(searchMessage(page, "Searching iTunes…")).toBeVisible();
     await rate(page, 5);
     await save(page);
     await expect(savedBanner(page)).toBeVisible();

@@ -6,6 +6,7 @@ import {
   expectNoHorizontalOverflow,
   film,
   rate,
+  searchMessage,
   stubPosters,
   stubSearch,
   titleField,
@@ -100,7 +101,7 @@ test.describe("signed in", () => {
     await stubSearch(page, 502);
     await page.goto("/log");
     await titleField(page).fill("anything at all");
-    const message = page.getByText(/Film search isn't available right now/);
+    const message = searchMessage(page, /Film search isn't available right now/);
     await expect(message).toBeVisible();
     await expectInsideViewport(page, message);
     await expectNoHorizontalOverflow(page);
