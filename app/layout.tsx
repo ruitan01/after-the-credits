@@ -20,7 +20,24 @@ export const metadata: Metadata = {
     default: "After the Credits",
     template: "%s · After the Credits",
   },
-  description: "A quiet diary for the films you've watched. Private, and kept in your own browser.",
+  description: "A quiet, private diary for the films you've watched.",
+};
+
+// Clerk's widgets take literal colors, so these mirror the @theme tokens in globals.css.
+const clerkAppearance = {
+  variables: {
+    colorPrimary: "#e9b35f", // amber
+    colorPrimaryForeground: "#0f0d0b", // night
+    colorBackground: "#1a1714", // reel
+    colorForeground: "#f3ece1", // ivory
+    colorMutedForeground: "#bfb3a3", // parchment
+    colorInput: "#0f0d0b", // night
+    colorInputForeground: "#f3ece1", // ivory
+    colorBorder: "#7d705f", // seam-strong
+    colorDanger: "#f2917f", // ember
+    colorRing: "#e9b35f", // amber
+    fontFamily: "var(--font-inter), ui-sans-serif, system-ui, sans-serif",
+  },
 };
 
 export default function RootLayout({
@@ -31,7 +48,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${fraunces.variable} ${inter.variable} min-h-dvh font-sans antialiased`}>
-        <ClerkProvider>
+        <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up" afterSignOutUrl="/" appearance={clerkAppearance}>
           <a
             href="#main"
             className="sr-only rounded bg-amber px-4 py-2 font-medium text-night focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50"

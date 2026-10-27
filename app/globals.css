@@ -5,6 +5,8 @@
  * Contrast against --color-night (#0f0d0b):
  *   ivory 16.5:1 · parchment (muted) 9.4:1 · amber 10.2:1 · ember (errors) 8.4:1
  *   seam-strong (input borders) 3.7:1 on --color-reel, meeting the 3:1 non-text minimum
+ * Clerk's sign-in card (app/layout.tsx) sits on --color-reel (#1a1714):
+ *   ivory 15.2:1 · parchment 8.7:1 · amber 9.4:1 · ember 7.8:1 · night on amber buttons 10.2:1
  */
 @theme {
   --color-night: #0f0d0b;
