@@ -3,13 +3,68 @@
 Context for coding agents working in this repository.
 
 ## What this is
-A private, personal film diary for MPCS 51238 Assignment 3, "Patterns & Flows: An Everyday Tool". A visitor logs a film (title, date watched, 1–5 star rating, optional reflection) and finds their entries again when they come back. Data lives only in the browser's `localStorage`.
+A private, personal film diary. A visitor signs in, logs a film (title, date watched, 1–5 star rating, optional reflection), and finds their entries again on any device.
+
+- **Assignment 3** ("Patterns & Flows") built the diary with `localStorage` only. That version is live from `main`.
+- **Assignment 4** ("Full Stack App", branch `assignment-4-fullstack`) adds Clerk sign-in, a Supabase database with row-level security, and iTunes Search for finding films. Each person sees only their own entries.
 
 ## Hard constraints (push back if a change would break these)
-- **Stack:** Next.js (App Router) + Tailwind CSS v4 + TypeScript. Vitest is the only extra dev dependency.
-- **No** backend, database, authentication, API routes, or external APIs. That includes movie lookup APIs such as TMDB and OMDb.
-- **No** new runtime dependencies without a clear reason. Prefer platform features such as native inputs and `crypto.randomUUID`.
-- Keep the scope small. The full list of postponed features is in `README.md` under "Decisions".
+- **Stack:** Next.js (App Router) + Tailwind CSS v4 + TypeScript, Clerk (`@clerk/nextjs`), Supabase (`@supabase/supabase-js`), and one external API: iTunes Search. Dev-only: Vitest, Playwright, `@clerk/testing`.
+- **No other** backend services, external APIs or runtime dependencies without a clear reason. Prefer platform features.
+- **Keys:** secrets live only in `.env.local` (git-ignored) and in Vercel's environment variables. Never in code, commits, logs or chat. Agents must not read or write `.env*` files (denied in `.claude/settings.json`). The owner creates `.env.local` by hand.
+  - Only `NEXT_PUBLIC_*` values may reach the browser: the Clerk publishable key, the Supabase URL and the Supabase publishable key.
+  - The Clerk secret key is server-only. The Supabase secret / service-role key is **not used** by this app, because it bypasses row-level security.
+- **Free tiers only.** Clerk stays on development keys.
+- **Preserve the existing visual design and flows.** New UI reuses the `@theme` tokens and `components/ui.tsx`.
+- Keep the scope small. Postponed features are listed in `README.md` under "Decisions".
+
+## Architecture
+```
+Browser (client components)
+ ├─ Clerk: sign-up / sign-in / sign-out, session token (JWT)
+ ├─ Supabase client: publishable key + Clerk token ──► Postgres; RLS decides which rows
+ └─ fetch /api/films/search?q= ──► Next.js route handler ──► iTunes Search
+middleware.ts (clerkMiddleware): /log and /api/* need a signed-in user
+```
+- **Identity:** Clerk. Supabase trusts Clerk tokens via Third-Party Auth (Clerk provider). In SQL, `auth.jwt()->>'sub'` is the Clerk user id (`user_…`).
+- **Access control:** RLS policies in Postgres are the only gate for diary data. Diary reads and writes go straight from the browser to Supabase with the user's token, and no server code filters by user. Don't add a service-role client to "work around" RLS.
+- **Signed out:** `/` shows a welcome with sign-in and sign-up, and no entries, including entries from `localStorage`.
+- **Film search (planned for Phase 4; confirm with the owner before building):** a server route handler, because it lets us shrink a ~400 KB response to a few KB, cache identical searches for a day (Apple sends `max-age=86400`), and limit use to signed-in users. iTunes needs no key and allows CORS, so keys aren't the reason. Risk: Apple's informal limit is ~20 requests a minute per IP, and on Vercel every user shares the server's IP. Caching mitigates that.
+
+## iTunes Search: what we verified (2026-10-26)
+- `media=movie` or `entity=movie` **returns 0 results for every title tried**. Don't use it.
+- `term=<q>&media=all&limit=200&country=US`, then keep only results with `kind === "feature-movie"`. This works but coverage is patchy: it found *Barbie* (2023), but not *Inception*, *Parasite*, *Past Lives* or *Aftersun*, which are crowded out by music and podcasts. `lookup?id=` does find them.
+- **Consequence:** search is an optional helper on `/log`. Typing a title by hand must always work.
+- **Fields we use:** `trackId` (stable id), `trackName` (title), `artistName` (director), `releaseDate` (ISO; we take the year), `artworkUrl100` (poster; swap `100x100bb` for a larger size), `primaryGenreName`. Ignore prices, previews and the `collection*` fields.
+- **Nothing found:** HTTP 200 with `{"resultCount":0,"results":[]}`. An empty term behaves the same. "Nothing found" is not an error.
+- **API down:** network failure or a non-2xx status. The UI has three designed states: loading, nothing found and unavailable.
+
+## Data model (Supabase)
+One table. Every row belongs to one Clerk user.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `uuid` PK, default `gen_random_uuid()` | Imported entries keep their existing `localStorage` UUID |
+| `user_id` | `text not null`, default `auth.jwt()->>'sub'` | Clerk user id. **`text`, not `uuid`** |
+| `title` | `text not null`, non-blank check | |
+| `watched_on` | `date not null` | Local calendar day; maps to `YYYY-MM-DD` |
+| `rating` | `smallint not null`, check 1–5 | |
+| `reflection` | `text not null default ''` | |
+| `itunes_id` | `bigint` null | `trackId`; null when typed by hand |
+| `artwork_url` | `text` null | |
+| `release_year` | `smallint` null | |
+| `created_at` | `timestamptz not null default now()` | |
+
+- Index on `(user_id, watched_on desc)`.
+- **RLS is enabled.** One policy per action, all `to authenticated`, comparing `(select auth.jwt()->>'sub') = user_id`: `select` (using), `insert` (with check), `update` (using + with check), `delete` (using).
+- Schema changes are migrations only, made through the Supabase MCP server. Never edit tables by hand.
+- The form draft stays in `localStorage` (`after-the-credits:draft:v1`). It's a per-device convenience, not diary data.
+
+## Existing localStorage entries
+Entries from Assignment 3 (`after-the-credits:entries:v1`) belong to a browser, not an account.
+1. **Never import automatically, and never delete them automatically.** After sign-in, if any exist, offer: "N films are saved in this browser only. Add them to your account?" with **Add them** and **Not now**.
+2. **The import is idempotent:** reuse each entry's UUID as `id` and insert with `on conflict do nothing`. Entries without a UUID id get a new one.
+3. **Only after the whole import succeeds**, copy the value to `after-the-credits:entries:v1:imported-<timestamp>` and remove the original key. On any failure, leave `localStorage` untouched.
 
 ## Commands
 ```bash
@@ -26,16 +81,20 @@ npm run build   # production build; must pass before committing
 | `app/page.tsx` → `components/Diary.tsx` | `/`: loading, first-visit welcome, returning diary, save banner |
 | `app/log/page.tsx` → `components/EntryForm.tsx` | `/log`: the entry form |
 | `components/ui.tsx` | Shared `Button`, `ButtonLink`, `Field`, and `FieldError` primitives |
-| `lib/entries.ts` | `Entry` type and all `localStorage` access (load, save, delete, corrupt-data backup, form draft) |
+| `lib/entries.ts` | `Entry` type and all diary storage. Currently `localStorage`; becomes Supabase in Phase 2 |
 | `lib/validate.ts` | Pure validators and the user-facing error messages |
 | `lib/date.ts` | Local-day date helpers (never use `toISOString()` for days) |
+| `.claude/settings.json` | Denies agents read access to `.env` files |
 | `docs/flows.md` | Mermaid diagram of the three flows (embedded in `README.md`) |
 | `docs/RESEARCH.md` | Onboarding research and the design decisions it led to |
 
+## Build phases (each needs the owner's go-ahead)
+0. Deny rule + this file. 1. Clerk. 2. Supabase table, RLS, `lib/entries.ts` on Supabase. 3. `localStorage` import. 4. iTunes search on `/log`. 5. Playwright two-user test, watched failing first. 6. `/security-review`, merge, Vercel deploy.
+
 ## Conventions
-- Read and write `localStorage` only through `lib/entries.ts`, and only in effects or event handlers. Never during render.
+- Diary data goes through `lib/entries.ts` only, and only in effects or event handlers. Never during render.
 - Error messages say what to do next ("Enter the film's title."), never "Invalid input". They appear next to the field and in the summary.
 - Every field has a visible `<label>`. Use the `Field` primitive and native controls.
 - Colors come from the `@theme` tokens in `app/globals.css`. Any new color pairing must keep text at ≥ 4.5:1 contrast (non-text ≥ 3:1). Note the ratio in the comment there.
-- Keep commits small and conventional (`feat:`, `fix:`, `docs:`, `a11y:`), and run `npm test && npm run lint && npm run build` before each.
-- Don't deploy or push without the owner's approval.
+- Keep commits small and conventional (`feat:`, `fix:`, `docs:`, `a11y:`, `chore:`), and run `npm test && npm run lint && npm run build` before each.
+- Work on `assignment-4-fullstack`. Don't merge, deploy, push, or change the database without the owner's approval.
