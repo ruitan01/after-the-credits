@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Poster from "@/components/Poster";
 import { Star } from "@/components/StarRating";
 import { Button } from "@/components/ui";
 import { formatWatchedOn } from "@/lib/date";
@@ -15,14 +16,14 @@ type Props = {
 export default function EntryCard({ entry, highlighted = false, onDelete }: Props) {
   const [confirming, setConfirming] = useState(false);
 
-  return (
-    <article
-      aria-labelledby={`entry-${entry.id}-title`}
-      className={`rounded-xl border border-seam bg-reel/80 p-5 sm:p-6 ${highlighted ? "animate-glow" : ""}`}
-    >
+  const body = (
+    <>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id={`entry-${entry.id}-title`} className="font-serif text-2xl leading-snug tracking-tight text-ivory">
           {entry.title}
+          {entry.releaseYear !== null && (
+            <span className="ml-2 font-sans text-base tracking-normal text-parchment">{entry.releaseYear}</span>
+          )}
         </h2>
         <time dateTime={entry.watchedOn} className="text-sm text-parchment">
           {formatWatchedOn(entry.watchedOn)}
@@ -66,6 +67,23 @@ export default function EntryCard({ entry, highlighted = false, onDelete }: Prop
           </button>
         )}
       </div>
+    </>
+  );
+
+  return (
+    <article
+      aria-labelledby={`entry-${entry.id}-title`}
+      className={`rounded-xl border border-seam bg-reel/80 p-5 sm:p-6 ${highlighted ? "animate-glow" : ""}`}
+    >
+      {entry.artworkUrl ? (
+        // Linked to an iTunes film: poster beside the entry. Unlinked entries keep the original layout.
+        <div className="flex gap-4 sm:gap-5">
+          <Poster url={entry.artworkUrl} width={48} className="mt-1" />
+          <div className="min-w-0 flex-1">{body}</div>
+        </div>
+      ) : (
+        body
+      )}
     </article>
   );
 }
