@@ -82,6 +82,7 @@ npm run build   # production build; must pass before committing
 | `app/log/page.tsx` → `components/EntryForm.tsx` | `/log`: the entry form |
 | `components/ui.tsx` | Shared `Button`, `ButtonLink`, `Field`, and `FieldError` primitives |
 | `lib/entries.ts` | `Entry` type and all diary storage (Supabase `public.entries`), plus read-only parsers for the Assignment 3 `localStorage` entries (Phase 3 import) and the form draft helpers |
+| `components/ImportOffer.tsx` | "N films are saved in this browser only" offer; calls `importLocalEntries` only when the user chooses **Add them** |
 | `lib/supabase.ts` | `useSupabase()`: browser client with the publishable key and the Clerk session token; null until signed in |
 | `supabase/migrations/` | Record of each migration applied through the Supabase MCP server |
 | `lib/validate.ts` | Pure validators and the user-facing error messages |
