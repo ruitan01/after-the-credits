@@ -71,6 +71,7 @@ Entries from Assignment 3 (`after-the-credits:entries:v1`) belong to a browser, 
 ```bash
 npm run dev     # local dev server at http://localhost:3000
 npm test        # Vitest (lib/*.test.ts, app/**/route.test.ts)
+npm run test:e2e  # Playwright (e2e/): needs two Clerk test users in .env.local, see e2e/README.md
 npm run lint    # ESLint (next/core-web-vitals + TypeScript)
 npm run build   # production build; must pass before committing
 ```
@@ -93,6 +94,8 @@ npm run build   # production build; must pass before committing
 | `supabase/migrations/` | Record of each migration applied through the Supabase MCP server |
 | `lib/validate.ts` | Pure validators and the user-facing error messages |
 | `lib/date.ts` | Local-day date helpers (never use `toISOString()` for days) |
+| `e2e/` | Playwright: setup signs in two dedicated Clerk test users; specs for auth, diary, search, two-user isolation, import, and 375/320 px layouts. Test data is `E2E `-prefixed and removed by the test that made it |
+| `playwright.config.ts` | Projects (desktop, mobile-375, mobile-320), dev server, loads `.env.local` via `@next/env` |
 | `.claude/settings.json` | Denies agents read access to `.env` files |
 | `docs/flows.md` | Mermaid diagram of the three flows (embedded in `README.md`) |
 | `docs/RESEARCH.md` | Onboarding research and the design decisions it led to |
