@@ -29,11 +29,12 @@ middleware.ts (clerkMiddleware): /log and /api/* need a signed-in user
 - **Identity:** Clerk. Supabase trusts Clerk tokens via Third-Party Auth (Clerk provider). In SQL, `auth.jwt()->>'sub'` is the Clerk user id (`user_…`).
 - **Access control:** RLS policies in Postgres are the only gate for diary data. Diary reads and writes go straight from the browser to Supabase with the user's token, and no server code filters by user. Don't add a service-role client to "work around" RLS.
 - **Signed out:** `/` shows a welcome with sign-in and sign-up, and no entries, including entries from `localStorage`.
-- **Film search (planned for Phase 4; confirm with the owner before building):** a server route handler, because it lets us shrink a ~400 KB response to a few KB, cache identical searches for a day (Apple sends `max-age=86400`), and limit use to signed-in users. iTunes needs no key and allows CORS, so keys aren't the reason. Risk: Apple's informal limit is ~20 requests a minute per IP, and on Vercel every user shares the server's IP. Caching mitigates that.
+- **Film search (Phase 4):** `GET /api/films/search?q=` is a server route handler, because it shrinks a ~450 KB response to a few KB, caches identical searches for a day (our own `revalidate`, since Apple's `max-age` varies), and limits use to signed-in users (it checks `auth()` as well as the middleware). iTunes needs no key and allows CORS, so keys aren't the reason. Risk: Apple's informal limit is ~20 requests a minute per IP, and on Vercel every user shares the server's IP. The server cache, a 300 ms debounce, a 2-character minimum, aborted stale requests and a per-tab cache keep requests down. Any failure (network, 5 s timeout, 429/403/5xx, malformed body) is a 502 and the form shows "unavailable". Search never blocks saving a typed title.
 
 ## iTunes Search: what we verified (2026-10-26)
 - `media=movie` or `entity=movie` **returns 0 results for every title tried**. Don't use it.
 - `term=<q>&media=all&limit=200&country=US`, then keep only results with `kind === "feature-movie"`. This works but coverage is patchy: it found *Barbie* (2023), but not *Inception*, *Parasite*, *Past Lives* or *Aftersun*, which are crowded out by music and podcasts. `lookup?id=` does find them.
+- **Rechecked 2026-10-27:** iTunes also returns *irrelevant* films. "inception" gives 67 feature films, none of them *Inception*. So results are filtered by title (`lib/films.ts` `matchScore`): exact, starts-with (ignoring a leading article), every query word starting a title word, or a match ignoring spaces. Anything else is dropped, never shown to fill the list. `Cache-Control` varied from `max-age=17817` to `86400`.
 - **Consequence:** search is an optional helper on `/log`. Typing a title by hand must always work.
 - **Fields we use:** `trackId` (stable id), `trackName` (title), `artistName` (director), `releaseDate` (ISO; we take the year), `artworkUrl100` (poster; swap `100x100bb` for a larger size), `primaryGenreName`. Ignore prices, previews and the `collection*` fields.
 - **Nothing found:** HTTP 200 with `{"resultCount":0,"results":[]}`. An empty term behaves the same. "Nothing found" is not an error.
@@ -69,7 +70,7 @@ Entries from Assignment 3 (`after-the-credits:entries:v1`) belong to a browser, 
 ## Commands
 ```bash
 npm run dev     # local dev server at http://localhost:3000
-npm test        # Vitest (lib/*.test.ts)
+npm test        # Vitest (lib/*.test.ts, app/**/route.test.ts)
 npm run lint    # ESLint (next/core-web-vitals + TypeScript)
 npm run build   # production build; must pass before committing
 ```
@@ -83,6 +84,11 @@ npm run build   # production build; must pass before committing
 | `components/ui.tsx` | Shared `Button`, `ButtonLink`, `Field`, and `FieldError` primitives |
 | `lib/entries.ts` | `Entry` type and all diary storage (Supabase `public.entries`), plus read-only parsers for the Assignment 3 `localStorage` entries (Phase 3 import) and the form draft helpers |
 | `components/ImportOffer.tsx` | "N films are saved in this browser only" offer; calls `importLocalEntries` only when the user chooses **Add them** |
+| `components/FilmSearch.tsx` | The `/log` title input as an ARIA combobox with iTunes suggestions; loading, nothing-found and unavailable states; never blocks a typed title |
+| `components/Poster.tsx` | Decorative poster image (`next/image`, `unoptimized`); an empty frame when there's no artwork |
+| `app/api/films/search/route.ts` | Signed-in iTunes search: validate `q`, cached fetch, trimmed and ranked results, 502 when unavailable |
+| `lib/films.ts` | `Film` / `FilmLink` types, iTunes parsing, title relevance and ranking, artwork URL check (https `*.mzstatic.com` only) |
+| `lib/combobox.ts` | Keyboard rules for the suggestion list (arrows, Enter, Escape, Tab) |
 | `lib/supabase.ts` | `useSupabase()`: browser client with the publishable key and the Clerk session token; null until signed in |
 | `supabase/migrations/` | Record of each migration applied through the Supabase MCP server |
 | `lib/validate.ts` | Pure validators and the user-facing error messages |
