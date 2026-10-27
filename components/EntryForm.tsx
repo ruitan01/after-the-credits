@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import FilmSearch from "@/components/FilmSearch";
 import StarRating from "@/components/StarRating";
 import { Button, Field, inputClass } from "@/components/ui";
 import { localToday } from "@/lib/date";
@@ -180,18 +181,33 @@ export default function EntryForm() {
         )}
       </div>
 
-      <Field id="title" label={LABELS.title} hint="As it appears on the poster." error={errors.title}>
+      <Field
+        id="title"
+        label={LABELS.title}
+        hint="As it appears on the poster. Pick a suggestion from iTunes, or just type your own."
+        error={errors.title}
+      >
         {(control) => (
-          <input
-            {...control}
-            ref={titleRef}
-            name="title"
-            type="text"
-            autoComplete="off"
-            value={values.title}
-            onChange={(e) => update("title", e.target.value)}
-            onBlur={() => blur("title")}
+          <FilmSearch
+            control={control}
+            inputRef={titleRef}
             className={`${inputClass} font-serif text-lg`}
+            value={values.title}
+            film={film}
+            onType={(text) => {
+              // A changed title no longer matches the chosen film.
+              setFilm(null);
+              update("title", text);
+            }}
+            onBlur={() => blur("title")}
+            onChoose={(chosen) => {
+              update("title", chosen.title);
+              setFilm({ itunesId: chosen.itunesId, artworkUrl: chosen.artworkUrl, releaseYear: chosen.releaseYear });
+            }}
+            onUnlink={() => {
+              setFilm(null);
+              titleRef.current?.focus();
+            }}
           />
         )}
       </Field>
