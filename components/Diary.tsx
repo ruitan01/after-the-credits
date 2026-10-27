@@ -108,7 +108,7 @@ export default function Diary() {
         </ButtonLink>
         <p className="mt-6 flex items-center gap-2 text-sm text-parchment">
           <span aria-hidden="true">◐</span>
-          Entries stay in this browser. No account, nothing uploaded.
+          For now, entries stay in this browser on this device.
         </p>
       </section>
     );
